@@ -1,0 +1,52 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# --- virtual envs (we run multiple: core, libero(3.8), openvla, vla_jepa) ---
+.venv/
+venv/
+env/
+.python-version
+# conda env exports kept out of git; pin in NOTES.md instead
+
+# --- harness artifacts (large; never commit rollout data/media) ---
+data/            # rollouts/, frames/, videos/  (parquet + png + mp4)
+*.parquet
+*.mp4
+*.png
+*.hdf5
+# but DO keep tiny committed fixtures if we add them:
+!tests/fixtures/**/*.parquet
+
+# --- sim / training artifacts ---
+mujoco/
+*.mujoco
+MUJOCO_LOG.TXT
+wandb/
+outputs/
+checkpoints/
+*.ckpt
+*.pt
+*.safetensors
+
+# --- TFDS / HF dataset caches (DROID, lerobot) ---
+.cache/
+tfds/
+~/.cache/huggingface  # (informational; home dir not tracked)
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
+
+# --- conductor (already gitignored by conductor, listed for clarity) ---
+.context/
