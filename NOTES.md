@@ -157,15 +157,70 @@ forwards, so `reset()` between episodes is mandatory or a new episode replays th
 
 ## Rollout / Modal
 
-- **#1 ROLLOUT RISK — LIBERO + a VLA policy must coexist in ONE container image.** The closed
-  loop calls `policy.act(obs)` and `env.step(action)` in the same process, so the rollout image
-  needs robosuite 1.4 / numpy 1.22.4 (LIBERO, historically Python 3.8) AND the policy stack
-  (OpenVLA: torch 2.2 / transformers 4.40; VLA-JEPA: modern lerobot) together. Modern LIBERO
-  forks run on 3.10/3.11 (OpenPI does), so `modal_app.py` builds on 3.11 — but the exact
-  numpy/torch pin compatibility is UNVERIFIED until the first deploy. If they can't coexist,
-  fall back to the **OpenPI policy-server / env-client split** (a websocket between two images:
-  policy in its env, LIBERO in another). The two policy stacks also conflict with each other →
-  SEPARATE images (`openvla_image`, `vla_jepa_image`).
+- **Single-image LIBERO + OpenVLA: VERIFIED on Modal (2026-06-12).** Image builds + LIBERO
+  imports + benchmark/bddl resolution green (CPU smoke). Resolved/pinned set: **python 3.10,
+  torch 2.2.0, transformers 4.40.1, robosuite 1.4.1, mujoco 3.9.0, numpy==1.26.4 (pinned),
+  opencv-python==4.9.0.80 (pinned), gym 0.26.2, bddl 3.6.0, daft 0.7.15**. (Still to validate on
+  GPU: EGL env rendering + OpenVLA inference — the smoke only exercised import + task metadata,
+  and `gym 0.26`/`bddl 3.6` are newer than LIBERO's tested 0.25.2/1.0.1, so watch env
+  construction.) The "conflict" was largely a myth. LIBERO's `setup.py` is `install_requires=[]` /
+  `python_requires=">=3"`, so `pip install -e LIBERO` pulls NOTHING — its `requirements.txt`
+  (numpy==1.22.4, transformers==4.21.1, robomimic) is LIBERO's TRAINING deps, never used for
+  rollouts. The real combined env (OpenVLA `experiments/robot/libero/libero_requirements.txt`,
+  conda **python=3.10**) is just: the policy's HF inference stack + **robosuite==1.4.1** + bddl +
+  easydict + cloudpickle + gym + imageio[ffmpeg], with **numpy LEFT UNPINNED** so pip resolves
+  one version for torch 2.2 + robosuite. No OpenPI split. Friction points found (each = a blog
+  paragraph):
+    - **LIBERO must be on DISK (git clone), not pip-from-git.** `bddl_files`/`init_states` are
+      package data `get_libero_path` resolves from the repo dir, so we `git clone /opt/LIBERO` +
+      `pip install --no-deps -e /opt/LIBERO`.
+    - **robosuite 1.4.1, not 1.4.0** — what OpenVLA actually uses (1.5 changes obs keys/controller).
+    - **robosuite → pynput → evdev needs kernel headers.** robosuite 1.4.1 depends on `pynput`
+      (keyboard/SpaceMouse device input we never use), which on Linux pulls **`evdev`**, a C
+      extension that fails to build with "`linux/input.h` missing". Fix: `apt_install("linux-libc-dev")`
+      (provides the userspace kernel headers). Dead weight but harmless — we drive the env in code.
+    - **CUDA base has NO compiler + add_python wants clang.** `nvidia/cuda:*-runtime` ships no
+      gcc/clang, and Modal's `add_python` installs a python-build-standalone interpreter whose
+      sysconfig CC is `clang` — so building any C ext (evdev) fails with "command 'clang' failed:
+      No such file or directory". Fix: `apt_install("build-essential", "clang")`. (debian_slim
+      images dodge this; the CUDA-registry path does not.)
+    - **Editable LIBERO install doesn't import in the Modal function** — `pip install -e
+      /opt/LIBERO` reports success but `import libero` raises ModuleNotFound at runtime. Fix:
+      `.env({"PYTHONPATH": "/opt/LIBERO"})` (mirrors the sam3d reference's clone+sys.path pattern);
+      keeps bddl_files on disk too.
+    - **LIBERO's `__init__` interactively prompts on first import.** `libero/libero/__init__.py`
+      runs `input("...custom path for the dataset folder?...")` if `~/.libero/config.yaml`
+      (or `$LIBERO_CONFIG_PATH`) is missing → **EOFError** in a container. Fix: pre-write the
+      config at build (set `LIBERO_CONFIG_PATH` + `echo` the path dict pointing at the clone's
+      `bddl_files`/`init_files`/`assets`). `get_libero_path` only *warns* on missing `datasets`,
+      so we don't need the (separately-downloaded) datasets for rollouts.
+    - **numpy 2 sneaks in via daft→pyarrow and breaks torch 2.2.** OpenVLA's recipe leaves numpy
+      unpinned (fine in their conda env), but our `daft` layer pulls **pyarrow 24 → numpy 2.2.6**,
+      and torch 2.2.0 is compiled for numpy 1.x → `Failed to initialize NumPy: _ARRAY_API not
+      found`. Fix: pin **`numpy<2`** in the daft layer. (This is why OpenVLA's "unpinned numpy"
+      doesn't transfer — adding Daft changes the resolution.)
+    - **Watch the other loose pins pip resolved** (still unpinned): gym→**0.26.2** (not 0.25.2),
+      bddl→**3.6.0** (not 1.0.1). robosuite's `step` is its own 4-tuple so the gym-0.26 5-tuple
+      change shouldn't reach us, but gym.spaces / bddl 3.x API drift could bite at task
+      construction — the smoke test is what tells us. Pin once green.
+    - **Don't pip-install the openvla package** — inference is pure HF
+      `AutoModelForVision2Seq(trust_remote_code=True).predict_action`, so only transformers
+      4.40.1 / tokenizers 0.19.1 / timm 0.9.10 / torch 2.2.0 (+torchvision/torchaudio) / json-numpy
+      / pillow are needed. The full openvla repo is training-only.
+    - **flash-attn omitted** (notoriously painful build); the policy uses
+      `attn_implementation='sdpa'` on A100 — slower than flash but reliable. flash-attn parked.
+    - **numpy left unpinned** to match OpenVLA's working recipe — PIN the resolved version here
+      once the build succeeds (reproducibility), and watch for the np.float/np.bool removal if
+      robosuite 1.4.1 still uses them under numpy≥1.24.
+- **VLA-JEPA single-image is the still-open coexistence case (DEFERRED on Modal):** on py3.10
+  `pip install lerobot` resolves **lerobot==0.4.4** (0.5.x needs Python≥3.12), which pulls
+  **`evdev`** — a C extension that fails to build without Linux kernel headers (`linux/input.h`
+  missing); fix is `apt_install("linux-libc-dev")` (or the `evdev-binary` wheel). Worse, it's
+  unverified whether `policy.type='vla_jepa'` is even registered in 0.4.4. And **Modal builds
+  EVERY image referenced by an `@app.function` in the app**, so a broken `vla_jepa_image` blocks
+  the OpenVLA build too. So the VLA-JEPA Modal functions are removed for now (`vla_jepa_image`
+  kept as a documented TODO, unreferenced → not built); resolve the exact lerobot version against
+  github.com/ginwind/VLA-JEPA before re-adding them.
 - **Rollout = a `@daft.cls` UDF.** One row per episode spec `(suite, task_id, init_state_id,
   seed)`; the UDF runs one episode via `run_episode`, streams per-step rows to a `RolloutWriter`
   (one parquet part + frames + mp4 per episode on the OUTPUT Volume), returns an episode summary

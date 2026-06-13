@@ -42,48 +42,97 @@ HF_SECRET = modal.Secret.from_name("hf-token")
 VOLUMES = {MODEL_CACHE_DIR: MODEL_CACHE, OUTPUT_DIR: OUTPUTS}
 
 
-def _libero_base() -> modal.Image:
-    """LIBERO robosuite/MuJoCo sim layer (headless EGL). The fragile pins live here."""
+# Headless GL / sim apt deps (robosuite + MuJoCo EGL rendering).
+# build-essential + clang: the CUDA runtime base has NO compiler, and Modal's add_python ships a
+#   clang-built standalone interpreter, so building C exts (evdev) needs clang present (NOTES.md).
+# linux-libc-dev: robosuite -> pynput -> evdev needs linux/input.h to build.
+_GL_APT = (
+    "git", "ffmpeg", "build-essential", "clang", "linux-libc-dev",
+    "libgl1", "libglib2.0-0", "libegl1", "libgles2",
+    "libosmesa6", "libosmesa6-dev", "libsm6", "libxext6", "patchelf",
+)
+
+# Per OpenVLA's official LIBERO eval (experiments/robot/libero/libero_requirements.txt). Python
+# 3.10 is the proven combined env. numpy is intentionally LEFT UNPINNED — LIBERO's setup.py is
+# dep-free (its requirements.txt with numpy==1.22.4 / transformers==4.21.1 is training-only and
+# NOT used by `pip install -e LIBERO`), so pip resolves one numpy for torch 2.2 + robosuite 1.4.1.
+# opencv-python==4.9.0.80: robosuite pulls opencv unpinned -> 4.13 which declares numpy>=2 and
+# warns against our numpy 1.26.4; 4.9.0.80 is the last numpy-1-clean line (NOTES.md).
+_LIBERO_SIM_PINS = (
+    "robosuite==1.4.1", "bddl", "easydict", "cloudpickle", "gym",
+    "imageio[ffmpeg]", "opencv-python==4.9.0.80",
+)
+_LIBERO_REPO = "https://github.com/Lifelong-Robot-Learning/LIBERO.git"
+_PY = "3.10"
+
+
+_LIBERO_CFG = "/opt/LIBERO/.libero_config"
+_LIBERO_ROOT = "/opt/LIBERO/libero/libero"   # dir of libero/libero/__init__.py = the benchmark root
+
+
+def _with_libero(image: modal.Image) -> modal.Image:
+    """Add the LIBERO sim layer: robosuite runtime + the package CLONED on disk + a pre-written
+    config so its ``__init__`` never hits the interactive dataset-path prompt.
+
+    LIBERO is git-cloned (not pip-from-git) so its ``bddl_files`` / ``init_states`` ship on disk
+    where ``get_libero_path`` resolves them; ``--no-deps`` because setup.py installs nothing and
+    we don't want LIBERO's training requirements.txt pulled in.
+    """
     return (
-        modal.Image.from_registry(CUDA_BASE, add_python="3.11")
-        .apt_install("git", "ffmpeg", "libosmesa6-dev", "libgl1", "libglib2.0-0", "libegl1", "libgles2")
-        .pip_install(
-            "numpy==1.22.4",        # robosuite 1.4 needs <1.24 (np.float/np.bool); see NOTES.md
-            "robosuite==1.4.0",
-            "bddl==1.0.1",
-            "gym==0.25.2",          # OLD gym 4-tuple step API
-            "easydict",
-            "imageio[ffmpeg]",
-            "daft>=0.7.15",
-            "huggingface_hub",
-            "hf_xet",
+        image.pip_install(*_LIBERO_SIM_PINS)
+        .run_commands(
+            f"git clone --depth 1 {_LIBERO_REPO} /opt/LIBERO",
+            "pip install --no-deps -e /opt/LIBERO",
+            # Pre-write ~/.libero config (echo per line — no yaml dep, no quoting pain) so LIBERO's
+            # __init__ skips its `input()` prompt (EOFError in a container). Points at the clone.
+            f"mkdir -p {_LIBERO_CFG}",
+            f"echo 'benchmark_root: {_LIBERO_ROOT}' >> {_LIBERO_CFG}/config.yaml",
+            f"echo 'bddl_files: {_LIBERO_ROOT}/bddl_files' >> {_LIBERO_CFG}/config.yaml",
+            f"echo 'init_states: {_LIBERO_ROOT}/init_files' >> {_LIBERO_CFG}/config.yaml",
+            f"echo 'assets: {_LIBERO_ROOT}/assets' >> {_LIBERO_CFG}/config.yaml",
+            f"echo 'datasets: {_LIBERO_ROOT}/../datasets' >> {_LIBERO_CFG}/config.yaml",
         )
-        .run_commands("pip install --no-deps git+https://github.com/Lifelong-Robot-Learning/LIBERO.git")
-        .env({**hf_cache_env(), "MUJOCO_GL": "egl", "PYOPENGL_PLATFORM": "egl"})
+        # PYTHONPATH=/opt/LIBERO: editable install doesn't import in the Modal function runtime.
+        # LIBERO_CONFIG_PATH: where LIBERO reads config.yaml (default ~/.libero). See NOTES.md.
+        .env({
+            "MUJOCO_GL": "egl", "PYOPENGL_PLATFORM": "egl",
+            "PYTHONPATH": "/opt/LIBERO", "LIBERO_CONFIG_PATH": _LIBERO_CFG,
+        })
+    )
+
+
+def _with_pipeline(image: modal.Image) -> modal.Image:
+    return (
+        # numpy==1.26.4 (the verified resolution): daft pulls pyarrow 24 which would drag in
+        # numpy 2.x, breaking torch 2.2 ("_ARRAY_API not found") and robosuite. Pin it (NOTES.md).
+        image.pip_install("daft>=0.7.15", "huggingface_hub", "hf_xet", "numpy==1.26.4")
+        .env(hf_cache_env())
+        .add_local_dir(".", remote_path=APP_DIR, copy=True, ignore=MODAL_LOCAL_DIR_IGNORE)
+        .add_local_python_source("harness")
     )
 
 
 def openvla_image() -> modal.Image:
-    return (
-        _libero_base()
-        # OpenVLA's transformers pin is load-bearing and CONFLICTS with VLA-JEPA -> own image.
-        .pip_install("torch==2.2.0", "transformers==4.40.1", "tokenizers==0.19.1", "timm==0.9.10", "accelerate", "pillow")
-        .add_local_dir(".", remote_path=APP_DIR, copy=True, ignore=MODAL_LOCAL_DIR_IGNORE)
-        .add_local_python_source("harness")
+    """LIBERO + OpenVLA HF inference stack. We do NOT pip-install the openvla package — inference
+    is pure ``AutoModelForVision2Seq(trust_remote_code=True).predict_action``, so only the HF
+    stack is needed. flash-attn is omitted (painful build); the policy uses sdpa on A100."""
+    base = modal.Image.from_registry(CUDA_BASE, add_python=_PY).apt_install(*_GL_APT).pip_install(
+        "torch==2.2.0", "torchvision==0.17.0", "torchaudio==2.2.0",
+        "transformers==4.40.1", "tokenizers==0.19.1", "timm==0.9.10",
+        "accelerate>=0.25.0", "json-numpy", "pillow",
     )
+    return _with_pipeline(_with_libero(base))
 
 
 def vla_jepa_image() -> modal.Image:
-    return (
-        _libero_base()
-        .pip_install("lerobot>=0.5.0")  # modern LeRobot/Qwen3-VL stack
-        .add_local_dir(".", remote_path=APP_DIR, copy=True, ignore=MODAL_LOCAL_DIR_IGNORE)
-        .add_local_python_source("harness")
+    """LIBERO + VLA-JEPA's LeRobot stack. NOTE: the exact lerobot pin is UNVERIFIED — lerobot
+    0.5.x requires Python>=3.12 which clashes with robosuite-on-3.10, so VLA-JEPA likely needs the
+    older/forked lerobot its research repo pins. Resolve against github.com/ginwind/VLA-JEPA before
+    a real run (see NOTES.md); the structure below mirrors the openvla image."""
+    base = modal.Image.from_registry(CUDA_BASE, add_python=_PY).apt_install(*_GL_APT).pip_install(
+        "torch", "lerobot",  # TODO: pin to the VLA-JEPA repo's lerobot version (py3.10-compatible)
     )
-
-
-def _image_for(policy_type: str) -> modal.Image:
-    return {"openvla": openvla_image, "vla_jepa": vla_jepa_image}[policy_type]()
+    return _with_pipeline(_with_libero(base))
 
 
 def _fn_kwargs(image: modal.Image, *, gpu: str | None = None, cpu: float = 8, memory: int = 32768,
@@ -102,9 +151,38 @@ def download_openvla(model_id: str = "openvla/openvla-7b-finetuned-libero-spatia
     return _download(model_id)
 
 
-@app.function(**_fn_kwargs(vla_jepa_image(), cpu=4))
-def download_vla_jepa(model_id: str = "lerobot/VLA-JEPA-LIBERO") -> dict:
-    return _download(model_id)
+# NOTE: VLA-JEPA Modal functions are DEFERRED — `vla_jepa_image()` is unverified (lerobot pins
+# 0.4.4 on py3.10 and pulls evdev which needs kernel headers; the lerobot version where
+# `policy.type='vla_jepa'` is registered is still TBD, see NOTES.md). They're omitted so the app
+# only builds the OpenVLA image. Re-add `download_vla_jepa` / `run_sweep_vla_jepa` once the
+# VLA-JEPA env is pinned against github.com/ginwind/VLA-JEPA.
+
+
+@app.function(**_fn_kwargs(openvla_image(), cpu=2))
+def smoke() -> dict:
+    """CPU image smoke test (no GPU, no model download): do the imports resolve, is the LIBERO
+    package + its bddl_files on disk, and — key for reproducibility — what numpy did pip pick?"""
+    import os
+
+    import daft
+    import numpy
+    import robosuite
+    import transformers
+    from libero.libero import benchmark, get_libero_path
+
+    suite = benchmark.get_benchmark_dict()["libero_goal"]()
+    task = suite.get_task(0)
+    bddl = os.path.join(get_libero_path("bddl_files"), task.problem_folder, task.bddl_file)
+    return {
+        "numpy": numpy.__version__,
+        "transformers": transformers.__version__,
+        "robosuite": robosuite.__version__,
+        "daft": daft.__version__,
+        "libero_goal_n_tasks": suite.get_num_tasks(),
+        "task0_instruction": task.language,
+        "bddl_exists": os.path.exists(bddl),
+        "bddl_path": bddl,
+    }
 
 
 def _download(model_id: str) -> dict:
@@ -154,12 +232,6 @@ def run_sweep_openvla(suites: list[str], task_ids: list[int] | None = None, epis
     return _run_sweep("openvla", suites, task_ids, episodes, model_id, seed, write_video)
 
 
-@app.function(**_fn_kwargs(vla_jepa_image(), gpu=GPU_TYPE, memory=65536))
-def run_sweep_vla_jepa(suites: list[str], task_ids: list[int] | None = None, episodes: int = 10,
-                       model_id: str = "", seed: int = 0, write_video: bool = True) -> dict:
-    return _run_sweep("vla_jepa", suites, task_ids, episodes, model_id, seed, write_video)
-
-
 @app.local_entrypoint()
 def modal_main(
     policy_type: str = "openvla",
@@ -170,16 +242,23 @@ def modal_main(
     seed: int = 0,
     write_video: bool = True,
     download_only: bool = False,
+    smoke_test: bool = False,
 ):
+    if smoke_test:  # cheap CPU build check: imports + LIBERO bddl_files + resolved versions
+        print(smoke.remote())
+        return
+
     suite_list = [s.strip() for s in suites.split(",") if s.strip()]
     task_list = [int(t) for t in task_ids.split(",") if t.strip()] or None
 
+    if policy_type != "openvla":
+        raise SystemExit(f"policy_type={policy_type!r} not yet wired on Modal (VLA-JEPA image deferred — see NOTES.md). Use --policy-type openvla.")
+
     if download_only:
-        dl = {"openvla": download_openvla, "vla_jepa": download_vla_jepa}[policy_type]
-        print(dl.remote(model_id) if model_id else dl.remote())
+        print(download_openvla.remote(model_id) if model_id else download_openvla.remote())
         return
 
-    fn = {"openvla": run_sweep_openvla, "vla_jepa": run_sweep_vla_jepa}[policy_type]
+    fn = run_sweep_openvla
     result = fn.remote(suites=suite_list, task_ids=task_list, episodes=episodes,
                        model_id=model_id, seed=seed, write_video=write_video)
     print(f"{result['successes']}/{result['episodes']} succeeded -> {result['out_dir']}")

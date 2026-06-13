@@ -56,10 +56,6 @@ Ordered roughly by how cleanly they'd extend the existing contracts.
   `finalize()`.
 - **Parallel rollout sweep** (`env.max_parallel_tasks` / batched eval) for throughput once
   the single-env loop is correct.
-- **Policy-server / env-client split** (OpenPI websocket) — the fallback if LIBERO and a VLA
-  policy can't coexist in one Modal image (NOTES.md #1 rollout risk): policy in its own
-  container, LIBERO in another, action over a socket. More moving parts; only if the single
-  image fails.
 - **GPU memory snapshot for VLA cold starts** — the daft-examples `cls_kwargs` /
   `@modal.enter(snap=True)` pattern. Our `@daft.cls` loads lazily on the Daft worker (after the
   snapshot window) so it's off; wire the warm-load into the snapshot to enable it. Worth it once

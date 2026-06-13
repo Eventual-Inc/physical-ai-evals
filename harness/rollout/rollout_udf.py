@@ -38,12 +38,12 @@ RolloutSummary = DataType.struct(
 )
 
 
-def _build_policy(policy_type: str, model_id: str, device: str, unnorm_key: str | None):
+def _build_policy(policy_type: str, model_id: str, device: str, unnorm_key: str | None, attn_impl: str):
     if policy_type == "openvla":
         from harness.policies.openvla import OpenVLAPolicy
         return OpenVLAPolicy(
             model_id=model_id or "openvla/openvla-7b-finetuned-libero-spatial",
-            unnorm_key=unnorm_key, device=device,
+            unnorm_key=unnorm_key, device=device, attn_impl=attn_impl,
         )
     if policy_type == "vla_jepa":
         from harness.policies.vla_jepa import VLAJEPAPolicy
@@ -66,6 +66,7 @@ class LiberoRollout:
         run_id: str = "rollout",
         device: str = "cuda",
         unnorm_key: str | None = None,
+        attn_impl: str = "sdpa",   # sdpa works on A100 without a flash-attn build (see NOTES.md)
         camera_height: int = 256,
         camera_width: int = 256,
         num_steps_wait: int = 10,
@@ -84,7 +85,7 @@ class LiberoRollout:
         self.num_steps_wait = num_steps_wait
         self.max_steps = max_steps
         self.env_seed = env_seed
-        self.policy = _build_policy(policy_type, model_id, device, unnorm_key)  # once per worker
+        self.policy = _build_policy(policy_type, model_id, device, unnorm_key, attn_impl)  # once per worker
         self.writer = RolloutWriter(
             out_dir, frames_dir, videos_dir, run_id=run_id,
             write_frames=write_frames, write_video=write_video,
