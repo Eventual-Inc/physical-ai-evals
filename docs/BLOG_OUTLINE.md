@@ -76,15 +76,21 @@ lines; show the wedge query (`where(success == False)`).
 ## 4. The payoff — failure forensics on a real comparison (~400 words)
 
 The notebook (notebooks/failure_modes.py) on the real sweep:
-[PENDING SWEEP NUMBERS — slots:]
-- Success rates: VLA-JEPA __% vs OpenVLA __% on libero_spatial (10 trials × 10 tasks, seed 7 —
-  an honest subset of the 50-trial canon, stated as such).
-- **The hero figure**: the annotated re-grasp trace — a real failed episode commanding
-  **12 grasp cycles**, measured finger separation collapsing to ~1 mm ("closed on air") again
-  and again, eef height sawtoothing. Caption: *watch a fumble loop without watching anything.*
-- The failure-mix bar: re_grasp / no_grasp / grasp_no_lift / missed_target per policy →
-  "[POLICY]'s failures are __× more often re-grasp fumbles" — the actionable *why* a scalar
-  can't give you.
+[NUMBERS IN — 2026-07-02 sweep, 200 episodes:]
+- Success rates: **VLA-JEPA 99%** vs **OpenVLA 84%** on libero_spatial (10 trials × 10 tasks,
+  seed 7 — an honest subset of the 50-trial canon, stated as such). Bonus beat: OpenVLA's 84%
+  lands **within a point of its published 84.7%** — the reproduction claim, demonstrated,
+  *after* fixing our own 0%.
+- **The hero figure** (baked in the executed notebook): OpenVLA commanding **23 grasp attempts
+  in one failed episode** ("pick up the black bowl next to the ramekin and place it on the
+  plate") — fingers collapsing to ~2 mm "closed on air" over and over, eef sawtoothing.
+  Caption: *watch a fumble loop without watching anything.*
+- The failure-mix bar + the money line: **"OpenVLA fails 16× more often than VLA-JEPA (16% vs
+  1%) — and 15 of its 16 failures are re-grasp fumble loops."** (VLA-JEPA's single failure is
+  also a fumble loop.) The actionable *why* a scalar can't give you.
+- Fresh §5 material from the sweep itself: the episode_id chimera (a 500-step phantom episode
+  in a 250-cap suite — group by (policy_type, episode_id)) and the env.reset() outcome-flip
+  (the same episode fails pre-fix, succeeds post-fix: contamination degrades before it crashes).
 - The behavioral features are 5 lines of pandas over 3 schema columns — cheap on purpose;
   thresholds read off the data (holding >4 mm vs air <2 mm histogram).
 
@@ -125,7 +131,7 @@ Close the section: *none of these raise; all of them read as "the model is bad."
 **X thread (7 posts):** 1) OpenVLA published 84.7%; ours said 0/7. The model was innocent. 🧵
 2) the two-line gripper query (screenshot) 3) the convention mismatch explained in one image
 4) fix → 10/10 (before/after) 5) the re-grasp hero figure — "watch a fumble loop without
-watching anything" 6) [PENDING] the failure-mix comparison 7) repo + "bring your own parquet".
+watching anything" 6) the failure-mix figure + "OpenVLA fails 16× more often — 15 of 16 failures are fumble loops" 7) repo + "bring your own parquet".
 
 **Standalone image posts:** the re-grasp trace; the 16-landmines list as a card.
 
@@ -140,8 +146,8 @@ gets the §1 story specifically (his issue IS this post).
 
 ## Assets checklist
 
-- [ ] Hero: re-grasp trace PNG (real data, from the executed notebook)
-- [ ] Failure-mix comparison bar [PENDING sweep]
+- [x] Hero: re-grasp trace PNG (baked: openvla@libero_spatial/1/0/7, 23 attempts)
+- [x] Failure-mix comparison bar (baked in notebook)
 - [ ] The 0/7 gripper-query terminal screenshot (recreate: `min/max gripper_action`)
 - [ ] Before/after table (0/7 @250-cap → 10/10 @~80 steps)
 - [ ] Nine-components grammar table (from EVAL_PATTERNS, simplified)
