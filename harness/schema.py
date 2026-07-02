@@ -76,6 +76,9 @@ def rollout_schema() -> pa.Schema:
     Identity / reproducibility (denormalized per step):
         ``schema_version``  str   — SCHEMA_VERSION stamp.
         ``episode_id``      str   — deterministic id = f"{suite}/{task_id}/{init_state_id}/{seed}".
+                                    Names the episode SPEC, so it is identical across policies at
+                                    the same spec BY DESIGN — multi-policy analysis must key on
+                                    (policy_type, episode_id). See NOTES.md.
         ``run_id``          str   — groups episodes from one ``harness rollout`` invocation.
         ``model``           str   — policy id, e.g. 'openvla/openvla-7b-finetuned-libero-spatial'.
         ``policy_type``     str   — 'openvla' | 'vla_jepa' | ingest source.

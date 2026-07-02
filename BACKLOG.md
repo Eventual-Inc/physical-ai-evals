@@ -46,6 +46,10 @@ Ordered roughly by how cleanly they'd extend the existing contracts.
   build Episodes (guaranteed schema parity, but not lazy). A scale path would project native
   columns → `ROLLOUT_SCHEMA` *in Daft* and `write_parquet` directly, staying lazy over huge
   datasets. Parked until a dataset big enough to need it appears.
+- **Policy-qualified `episode_id`** (e.g. `{policy_type}/{suite}/{task}/{init}/{seed}`). Today the
+  id names the episode SPEC (identical across policies by design; analyses key on
+  `(policy_type, episode_id)` — see NOTES.md). Folding the policy in would simplify notebooks but
+  breaks part filenames + sweep-resume matching; do it as a coordinated schema-version bump.
 - **OpenVLA-OFT / community checkpoints** (`moojink/openvla-7b-oft-*`) as extra baselines.
 - **Object-pose tracking from segmentation** (`SegmentationRenderEnv`) to make
   `object_poses` richer/more reliable for drop detection, instead of proprio-derived heuristics.
@@ -68,7 +72,3 @@ Ordered roughly by how cleanly they'd extend the existing contracts.
 If an idea isn't one of the three deliverables, it goes here, not into the month. Adding to
 this list is free; adding to June costs the distribution window.
 
-- **Policy-qualified `episode_id`** (e.g. `{policy_type}/{suite}/{task}/{init}/{seed}`). Today the
-  id names the episode SPEC (identical across policies by design; analyses key on
-  `(policy_type, episode_id)` — see NOTES.md). Folding the policy in would simplify notebooks but
-  breaks part filenames + sweep-resume matching; do it as a coordinated schema-version bump.
