@@ -184,6 +184,16 @@ unnormalized LIBERO action at a time, and `reset()` clears the cached chunk betw
     - Processor pipelines are NOT auto-wired by `from_pretrained` — load them with
       `make_pre_post_processors(..., preprocessor_overrides={"device_processor": {"device": ...}})`
       (the saved JSON pins device=cpu; this mirrors lerobot_eval).
+    - **`episode_id` names the SPEC, not the attempt — group multi-policy pools by
+      (policy_type, episode_id).** Both policies legitimately run `libero_spatial/5/1/7`, so a
+      notebook `groupby("episode_id")` chimera'd OpenVLA's failure and VLA-JEPA's failure into
+      one 500-step phantom "episode" with 113 phantom grasp cycles. Caught because the suite's
+      step cap is 250 — a 500-step episode is impossible. (A per-policy id was considered and
+      parked: it would break existing part filenames/resume; see BACKLOG.)
+    - **The `env.reset()` fix changed an episode's OUTCOME, not just prevented the crash.**
+      `libero_spatial/0/1/7` (VLA-JEPA) failed at the 250-cap before the fix and SUCCEEDS after
+      — carryover contamination degrades episodes well before the hard "terminated episode"
+      crash (caveat: GPU nondeterminism can't be fully excluded on n=1).
     - **`modal run --detach` survives a network drop but NOT a client teardown.** When the
       local process was SIGKILLed (session teardown), the run received "a cancellation signal"
       and died mid-sweep — twice. Fire-and-forget sweeps need `modal deploy` +

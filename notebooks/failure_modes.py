@@ -36,7 +36,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-DATA_GLOB = "data/rollouts/*/*.parquet"   # <- your rollout dir(s); one row per step
+import glob as _glob
+
+# <- your rollout dir(s); one row per step. Works from the repo root or from notebooks/.
+DATA_GLOB = next(
+    (g for g in ("data/rollouts/*/*.parquet", "../data/rollouts/*/*.parquet") if _glob.glob(g)),
+    "data/rollouts/*/*.parquet",
+)
 
 df = daft.read_parquet(DATA_GLOB)
 print(f"{df.count_rows()} step rows")
@@ -79,6 +85,11 @@ fail_steps = (
               "gripper_action", "gripper_state", "eef_pos", "video_path")
       .to_pandas()
 )
+# episode_id is the (suite, task, init, seed) quadruple — DELIBERATELY the same for both
+# policies at the same spec, so all per-episode analysis must key on (policy_type, episode_id).
+# (Grouping on episode_id alone once chimera'd two policies' episodes into a 500-step phantom
+# in a 250-cap suite — see NOTES.md.)
+fail_steps["uid"] = fail_steps["policy_type"] + "@" + fail_steps["episode_id"]
 
 HOLD_MM = 0.004   # measured finger separation, while commanded closed: >4mm => holding something
 AIR_MM = 0.002    # <2mm while closed => fingers met: closed on air
@@ -106,7 +117,7 @@ def episode_features(g: pd.DataFrame) -> pd.Series:
 
 
 feats = (
-    fail_steps.groupby("episode_id").apply(episode_features, include_groups=False)
+    fail_steps.groupby("uid").apply(episode_features, include_groups=False)
     if len(fail_steps) else pd.DataFrame()
 )
 feats.head(10)
@@ -159,9 +170,14 @@ if len(feats):
 
 # %%
 if len(feats):
-    regrasps = feats[feats["failure_mode"] == "re_grasp"]
-    hero_id = (regrasps if len(regrasps) else feats).sort_values("close_cycles").index[-1]
-    hero = fail_steps[fail_steps["episode_id"] == hero_id].sort_values("step_idx")
+    # Showcase the policy whose failures dominate the comparison (most failures), falling back
+    # to the global fumble champion.
+    pool = feats[feats["failure_mode"] == "re_grasp"] if (feats["failure_mode"] == "re_grasp").any() else feats
+    top_policy = feats["policy_type"].value_counts().idxmax()
+    if (pool["policy_type"] == top_policy).any():
+        pool = pool[pool["policy_type"] == top_policy]
+    hero_id = pool.sort_values("close_cycles").index[-1]
+    hero = fail_steps[fail_steps["uid"] == hero_id].sort_values("step_idx")
     ga = hero["gripper_action"].to_numpy(dtype=float)
     gs = hero["gripper_state"].to_numpy(dtype=float) * 1000  # mm
     z = np.stack(hero["eef_pos"].to_numpy())[:, 2]
@@ -199,23 +215,33 @@ if len(feats):
 # The success-rate gap says one model is better. The failure mix says **what to fix**.
 
 # %%
-if len(feats) and feats["policy_type"].nunique() >= 1:
-    share = (feats.groupby("policy_type")["failure_mode"]
-                  .value_counts(normalize=True).unstack(fill_value=0))
+if len(feats):
+    counts = (feats.groupby("policy_type")["failure_mode"]
+                   .value_counts().unstack(fill_value=0)
+                   .reindex(episodes["policy_type"].unique(), fill_value=0))
     order = [c for c in ["re_grasp", "no_grasp", "grasp_no_lift", "missed_target", "timeout"]
-             if c in share.columns]
-    ax = share[order].plot.bar(figsize=(8, 3.6), width=0.75,
-                               color=["#9467bd", "#d62728", "#ff7f0e", "#1f77b4", "gray"])
-    ax.set_ylabel("share of that policy's failures")
-    ax.set_title("Failure-mode mix per policy — the why behind the success rate", fontweight="bold")
+             if c in counts.columns]
+    n_eps = episodes.groupby("policy_type").size()
+    rate = counts.div(n_eps, axis=0)          # failures per episode, by mode — comparable scale
+    ax = rate[order].plot.bar(figsize=(8, 3.6), width=0.75,
+                              color=["#9467bd", "#d62728", "#ff7f0e", "#1f77b4", "gray"])
+    ax.set_ylabel("failure rate (episodes, by mode)")
+    ax.set_title("How each policy fails — the why behind the success rate", fontweight="bold")
+    for i, p in enumerate(rate.index):
+        ax.text(i, rate.loc[p, order].sum() + 0.004, f"n={int(counts.loc[p].sum())} failures",
+                ha="center", fontsize=8)
     ax.legend(fontsize=8, title=None)
     plt.xticks(rotation=0)
     plt.tight_layout()
 
-    if "re_grasp" in share.columns and share["re_grasp"].gt(0).sum() >= 2:
-        r = share["re_grasp"].sort_values()
-        print(f"{r.index[-1]}'s failures are {r.iloc[-1] / max(r.iloc[0], 1e-9):.1f}x more often "
-              f"re-grasp fumble loops than {r.index[0]}'s.")
+    fr = 1.0 - episodes.groupby("policy_type")["success"].mean()
+    lo, hi = fr.idxmin(), fr.idxmax()
+    line = (f"{hi} fails {fr[hi] / max(fr[lo], 1e-9):.0f}x more often than {lo} "
+            f"({fr[hi]:.0%} vs {fr[lo]:.0%})")
+    if "re_grasp" in counts.columns and counts.loc[hi].sum() >= 5:
+        line += (f" — and {int(counts.loc[hi, 're_grasp'])} of its {int(counts.loc[hi].sum())} "
+                 f"failures are re-grasp fumble loops.")
+    print(line)
 
 # %% [markdown]
 # ## Reproduce this
