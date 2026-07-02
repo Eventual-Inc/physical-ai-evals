@@ -53,6 +53,7 @@ VOLUMES = {MODEL_CACHE_DIR: MODEL_CACHE, OUTPUT_DIR: OUTPUTS}
 
 _GL_APT = (
     "git", "ffmpeg", "build-essential", "clang", "linux-libc-dev",
+    "cmake",  # hf-libero -> egl_probe is a CMake-built C ext; CUDA base has no cmake (NOTES.md)
     "libgl1", "libglib2.0-0", "libegl1", "libgles2",
     "libosmesa6", "libosmesa6-dev", "libsm6", "libxext6", "patchelf",
 )
@@ -75,6 +76,10 @@ def vla_jepa_image() -> modal.Image:
             "hf_xet",
             "imageio[ffmpeg]",
         )
+        # hf-libero kept LIBERO's interactive first-import dataset-path prompt (EOFError in a
+        # container). Import once at build with 'n' piped in so LIBERO writes its own default
+        # config (pointing at the wheel's bddl/assets/init paths) into the image (NOTES.md).
+        .run_commands("printf 'n\\n' | python -c 'import libero.libero'")
         .env({**hf_cache_env(), "MUJOCO_GL": "egl", "PYOPENGL_PLATFORM": "egl"})
         .add_local_dir(".", remote_path=APP_DIR, copy=True, ignore=MODAL_LOCAL_DIR_IGNORE)
         .add_local_python_source("harness")

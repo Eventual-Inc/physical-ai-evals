@@ -184,6 +184,16 @@ unnormalized LIBERO action at a time, and `reset()` clears the cached chunk betw
     - Processor pipelines are NOT auto-wired by `from_pretrained` — load them with
       `make_pre_post_processors(..., preprocessor_overrides={"device_processor": {"device": ...}})`
       (the saved JSON pins device=cpu; this mirrors lerobot_eval).
+    - **`hf-libero` kept LIBERO's interactive first-import prompt.** The wheel still runs
+      `input("...custom path for the dataset folder?...")` when no config exists → EOFError in
+      a container (the same trap as the raw clone, one packaging layer later). Fix: at image
+      build, `printf 'n\n' | python -c 'import libero.libero'` — LIBERO then writes its own
+      default config pointing at the wheel's bddl/assets/init paths, baked into the image.
+    - **`hf-libero` → `egl_probe` needs CMake.** hf-libero depends on `hf-egl-probe`/`egl_probe`
+      (EGL-device probing), a C extension whose setup.py hard-requires CMake — the CUDA base
+      image has none, so the whole `lerobot[libero]` install fails with "CMake must be
+      installed". Fix: `apt_install("cmake")`. (Same genus as the evdev/kernel-headers and
+      no-compiler gotchas on the OpenVLA image: CUDA runtime bases are build-tool-free.)
     - The VLA-JEPA image is py3.12 / transformers 5.4–5.6 / numpy 2.x — SEPARATE image from
       OpenVLA's py3.10/4.40.1 (two-app split stands). numpy-2 × daft/pyarrow inside that image
       is a smoke-test watch item; loading also pulls Qwen3-VL-2B + V-JEPA2 (3 HF repos; the
