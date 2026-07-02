@@ -184,6 +184,13 @@ unnormalized LIBERO action at a time, and `reset()` clears the cached chunk betw
     - Processor pipelines are NOT auto-wired by `from_pretrained` — load them with
       `make_pre_post_processors(..., preprocessor_overrides={"device_processor": {"device": ...}})`
       (the saved JSON pins device=cpu; this mirrors lerobot_eval).
+    - **Cached envs MUST `env.reset()` every episode — `set_init_state` alone poisons sweeps.**
+      `set_init_state` restores sim state but does NOT clear robosuite's internal
+      `timestep`/`done`, so env reuse accumulates steps toward the horizon (1000). Short runs
+      never notice (our 2-episode verification = ~330 cumulative steps); the first real sweep
+      died at ~episode 4 when the counter tripped mid-episode and every later `env.step`
+      raised `ValueError: executing action in terminated episode`. Fix: `env.reset()` before
+      `set_init_state` each episode (OpenPI's loop does exactly this — now we know why).
     - **The 180° de-rotation view breaks `torch.from_numpy`.** Our runner de-rotates with
       `img[::-1, ::-1]` — a negative-stride numpy VIEW. PIL-based policies (OpenVLA) copy
       implicitly, but torch-based ones crash: "At least one stride in the given numpy array is

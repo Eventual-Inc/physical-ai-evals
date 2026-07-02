@@ -97,17 +97,25 @@ def run_episode(
 ) -> RolloutResult:
     """Run one deterministic episode and stream it to ``writer`` -> one parquet part.
 
-    Loop (faithful to OpenPI): ``set_init_state`` (selects object layout, NOT just seed) ->
-    settle ``num_steps_wait`` zero-action steps -> ``policy.reset`` -> for each step: de-rotate
-    agentview, ``policy.act`` -> clip -> ``env.step`` (OLD gym 4-tuple) -> append. Success is the
-    BDDL predicate ``env.check_success()``, independent of the ``done`` flag. ``terminal_failure``
-    is left ``'unlabeled'`` on failure; the notebook's pass assigns the real class.
+    Loop (faithful to OpenPI): ``env.reset()`` -> ``set_init_state`` (selects object layout,
+    NOT just seed) -> settle ``num_steps_wait`` zero-action steps -> ``policy.reset`` -> for
+    each step: de-rotate agentview, ``policy.act`` -> clip -> ``env.step`` (OLD gym 4-tuple)
+    -> append. Success is the BDDL predicate ``env.check_success()``, independent of the
+    ``done`` flag. ``terminal_failure`` is left ``'unlabeled'`` on failure; the notebook's
+    pass assigns the real class.
+
+    ``env.reset()`` per episode is LOAD-BEARING for cached envs: ``set_init_state`` alone does
+    NOT clear robosuite's internal ``timestep``/``done``, so reuse accumulates toward the
+    horizon (1000) and, once tripped, every later ``step`` raises "executing action in
+    terminated episode" (NOTES.md — surfaced on the first multi-episode sweep, invisible in
+    short runs).
     """
     writer.begin_episode(
         episode_id, suite=suite, task_id=task_id, task_name=task_name, instruction=instruction,
         model=model, policy_type=policy_type or policy.__class__.__name__, init_state_id=init_state_id,
         seed=seed, bddl_file=bddl_file, control_mode=getattr(policy, "control_mode", "relative"),
     )
+    env.reset()
     obs = env.set_init_state(init_state)
     dummy = [0.0] * policy.action_dim
     for _ in range(num_steps_wait):  # let objects settle before policy control

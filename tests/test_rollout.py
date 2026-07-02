@@ -18,11 +18,18 @@ from harness.writer import RolloutWriter, assert_emits_schema
 
 
 class _FakeEnv:
-    """Succeeds after ``n_steps`` policy steps. set_init_state resets the step counter."""
+    """Succeeds after ``n_steps`` policy steps. Mirrors the LIBERO env surface the runner
+    touches: reset / set_init_state / step / check_success / close."""
 
     def __init__(self, n_steps=2):
         self.n_steps = n_steps
         self.t = 0
+        self.reset_calls = 0
+
+    def reset(self):
+        self.reset_calls += 1   # load-bearing per episode (robosuite horizon/done clearing)
+        self.t = 0
+        return self._obs()
 
     def set_init_state(self, _state):
         self.t = 0
@@ -132,15 +139,17 @@ def test_run_episode_failure_labels_unlabeled(tmp_path):
 
 def test_run_sweep_iteration_and_episode_ids(tmp_path):
     cfg = _cfg(tmp_path)
+    env = _FakeEnv(n_steps=2)
     results = run_sweep(
         cfg, _FakePolicy(),
-        env_factory=lambda s, t: (_FakeEnv(n_steps=2), _FakeTask()),
+        env_factory=lambda s, t: (env, _FakeTask()),
         init_states_provider=lambda s, t: [np.zeros(4), np.zeros(4), np.zeros(4)],
         num_tasks_provider=lambda s: 1,
     )
     assert len(results) == 2                         # n_episodes_per_task=2
     assert [r.episode_id for r in results] == ["libero_goal/0/0/0", "libero_goal/0/1/0"]
     assert all(r.success for r in results)
+    assert env.reset_calls == 2                      # one env.reset() per episode (horizon bug)
 
     # both parts land in the rollouts dir and form one canonical glob
     import pyarrow.dataset as pads
