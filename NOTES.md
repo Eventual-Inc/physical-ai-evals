@@ -184,6 +184,13 @@ unnormalized LIBERO action at a time, and `reset()` clears the cached chunk betw
     - Processor pipelines are NOT auto-wired by `from_pretrained` — load them with
       `make_pre_post_processors(..., preprocessor_overrides={"device_processor": {"device": ...}})`
       (the saved JSON pins device=cpu; this mirrors lerobot_eval).
+    - **`modal run --detach` survives a network drop but NOT a client teardown.** When the
+      local process was SIGKILLed (session teardown), the run received "a cancellation signal"
+      and died mid-sweep — twice. Fire-and-forget sweeps need `modal deploy` +
+      `Function.from_name(...).spawn(...)`: no local process exists to kill. Pair it with
+      resumable sweeps (skip episodes whose part file is already on the volume — the filenames
+      ARE the deterministic episode ids) and an interrupted sweep costs only the in-flight
+      episode.
     - **OpenVLA's raw gripper output cannot operate LIBERO's gripper — 0% SR, silently.**
       `predict_action` returns the RLDS convention (gripper ∈ [0,1], ~1=open); LIBERO wants
       −1=open/+1=close. Fed raw, the commanded gripper is never negative → the hand can never
