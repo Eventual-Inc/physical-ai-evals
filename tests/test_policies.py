@@ -102,6 +102,26 @@ def test_openvla_action_clipped_to_7():
     assert p.act({"image": np.zeros((4, 4, 3), np.uint8)}).shape == (7,)
 
 
+def test_openvla_gripper_rlds_to_libero():
+    # predict_action returns RLDS convention: gripper in [0,1], ~1=open. LIBERO wants
+    # -1=open/+1=close. Regression for the 0/7-SR sweep (gripper could never open; NOTES.md).
+    for raw, expected in ((0.996, -1.0), (0.0, 1.0), (0.4, 1.0)):
+        vla = _FakeVLA(action=np.array([0, 0, 0, 0, 0, 0, raw], np.float32))
+        p = OpenVLAPolicy(model_id="x", device="cpu", _vla=vla, _processor=_FakeProcessor())
+        p.reset("t")
+        assert p.act({"image": np.zeros((8, 8, 3), np.uint8)})[-1] == expected
+
+
+def test_openvla_center_crop_preserves_size():
+    pytest.importorskip("PIL")
+    proc = _FakeProcessor()
+    p = OpenVLAPolicy(model_id="x", device="cpu", _vla=_FakeVLA(), _processor=proc)
+    p.reset("t")
+    p.act({"image": np.full((20, 20, 3), 128, np.uint8)})
+    img = np.asarray(proc.last_image)
+    assert img.shape == (20, 20, 3)   # cropped to 0.9 area then resized back
+
+
 def test_openvla_checkpoint_table_consistent():
     # model ids use hyphens (libero-spatial); the unnorm_key is the suite name (verified on Modal).
     for suite, (mid, key) in LIBERO_CHECKPOINTS.items():

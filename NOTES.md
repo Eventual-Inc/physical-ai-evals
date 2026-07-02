@@ -184,6 +184,14 @@ unnormalized LIBERO action at a time, and `reset()` clears the cached chunk betw
     - Processor pipelines are NOT auto-wired by `from_pretrained` — load them with
       `make_pre_post_processors(..., preprocessor_overrides={"device_processor": {"device": ...}})`
       (the saved JSON pins device=cpu; this mirrors lerobot_eval).
+    - **OpenVLA's raw gripper output cannot operate LIBERO's gripper — 0% SR, silently.**
+      `predict_action` returns the RLDS convention (gripper ∈ [0,1], ~1=open); LIBERO wants
+      −1=open/+1=close. Fed raw, the commanded gripper is never negative → the hand can never
+      open, and polarity is inverted. Our first OpenVLA sweep ran 0/7 with every episode at the
+      250-step cap; ONE parquet query (`min/max of gripper_action`) diagnosed it. Fix mirrors
+      OpenVLA's own eval utils: normalize [0,1]→[−1,1], binarize, then INVERT. Same commit adds
+      the **center-crop** their eval applies (fine-tunes train with crop augmentation; skipping
+      it silently costs SR). The forensics layer catching a *harness* failure = the wedge.
     - **Cached envs MUST `env.reset()` every episode — `set_init_state` alone poisons sweeps.**
       `set_init_state` restores sim state but does NOT clear robosuite's internal
       `timestep`/`done`, so env reuse accumulates steps toward the horizon (1000). Short runs

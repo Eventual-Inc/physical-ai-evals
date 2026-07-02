@@ -45,6 +45,27 @@ def _derive_unnorm_key(model_id: str, explicit: str | None) -> str | None:
     return None
 
 
+def _center_crop(img, scale: float = 0.9):
+    """Center-crop to ``scale`` of the AREA (side factor sqrt(scale)), resize back.
+
+    The LIBERO fine-tunes were trained with random-crop augmentation; OpenVLA's own eval
+    applies this at inference (``center_crop=True``). Skipping it silently costs success rate.
+    """
+    arr = np.asarray(img)
+    h, w = arr.shape[:2]
+    side = float(np.sqrt(scale))
+    ch, cw = max(1, round(h * side)), max(1, round(w * side))
+    top, left = (h - ch) // 2, (w - cw) // 2
+    cropped = arr[top:top + ch, left:left + cw]
+    try:
+        from PIL import Image
+    except ImportError:  # tests without pillow: return the crop un-resized
+        return cropped
+    return np.asarray(
+        Image.fromarray(cropped.astype(np.uint8, copy=False)).resize((w, h), Image.Resampling.BILINEAR)
+    )
+
+
 def _as_pil(img):
     """ndarray -> PIL.Image for the processor. Degrades to the raw array when Pillow is absent
     (unit tests); the real OpenVLA env has Pillow (transformers/timm pull it)."""
@@ -79,6 +100,7 @@ class OpenVLAPolicy(Policy):
         unnorm_key: str | None = None,
         device: str = "cuda",
         attn_impl: str = "flash_attention_2",
+        center_crop: bool = True,   # LIBERO fine-tunes trained w/ crop aug; eval must crop too
         *,
         _vla=None,
         _processor=None,
@@ -87,6 +109,7 @@ class OpenVLAPolicy(Policy):
         self.unnorm_key = _derive_unnorm_key(model_id, unnorm_key)
         self.device = device
         self.attn_impl = attn_impl
+        self.center_crop = center_crop
         self._instruction = ""
         if _vla is not None or _processor is not None:  # test/injection seam
             self.vla, self.processor = _vla, _processor
@@ -122,14 +145,25 @@ class OpenVLAPolicy(Policy):
         self._instruction = instruction
 
     def act(self, observation: Observation) -> np.ndarray:
-        """Predict one 7-DoF action from the (already de-rotated) image + stored instruction."""
+        """Predict one 7-DoF action from the (already de-rotated) image + stored instruction.
+
+        Mirrors OpenVLA's official eval post-processing (``experiments/robot``): center-crop
+        (the LIBERO fine-tunes train with random-crop augmentation; eval crops to 0.9 area) and
+        the gripper convention conversion — ``predict_action`` returns RLDS convention
+        (gripper in [0,1], ~1=open) which LIBERO reads as "never open" (verified: 0/7 SR, every
+        commanded gripper >= 0; NOTES.md). normalize [0,1] -> [-1,1], binarize, then INVERT.
+        """
+        img = _center_crop(observation["image"]) if self.center_crop else observation["image"]
         prompt = PROMPT_TEMPLATE.format(instruction=self._instruction)
-        inputs = self.processor(prompt, _as_pil(observation["image"]))
+        inputs = self.processor(prompt, _as_pil(img))
         if hasattr(inputs, "to"):  # real transformers BatchFeature; plain dict in tests has no .to
             import torch
             inputs = inputs.to(self.device, dtype=torch.bfloat16 if self.device == "cuda" else torch.float32)
         action = self.vla.predict_action(**inputs, unnorm_key=self.unnorm_key, do_sample=False)
-        return np.asarray(_to_numpy(action), dtype=np.float32).reshape(-1)[: self.action_dim]
+        action = np.asarray(_to_numpy(action), dtype=np.float32).reshape(-1)[: self.action_dim].copy()
+        g = 2.0 * (action[-1] - 0.5)                     # RLDS [0,1] -> [-1,1]
+        action[-1] = -(1.0 if g > 0.0 else -1.0)         # binarize, then invert to LIBERO -1=open/+1=close
+        return action
 
     def close(self) -> None:
         self.vla = None
