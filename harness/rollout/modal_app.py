@@ -179,16 +179,28 @@ def _download(model_id: str) -> dict:
     return {"model_id": model_id, "model_path": str(path)}
 
 
-def _enumerate_specs(suites: list[str], task_ids: list[int] | None, episodes: int, seed: int):
-    """Expand (suites × tasks × episodes) into flat spec columns. Runs where LIBERO is importable."""
+def _enumerate_specs(suites: list[str], task_ids: list[int] | None, episodes: int, seed: int,
+                     out_dir: str | None = None):
+    """Expand (suites × tasks × episodes) into flat spec columns, skipping episodes whose
+    parquet part already exists in ``out_dir`` — sweeps are resumable (part filenames are the
+    deterministic episode ids, so a re-run finishes stragglers instead of redoing everything)."""
+    import os
+
     from harness.rollout.libero_runner import _libero_num_tasks
 
-    s_col, t_col, i_col, seed_col = [], [], [], []
+    s_col, t_col, i_col, seed_col, skipped = [], [], [], [], 0
     for suite in suites:
         tasks = task_ids if task_ids is not None else range(_libero_num_tasks(suite))
         for task_id in tasks:
             for init_state_id in range(episodes):
+                if out_dir and os.path.exists(
+                    os.path.join(out_dir, f"{suite}__{task_id}__{init_state_id}__{seed}.parquet")
+                ):
+                    skipped += 1
+                    continue
                 s_col.append(suite); t_col.append(int(task_id)); i_col.append(init_state_id); seed_col.append(seed)
+    if skipped:
+        print(f"[resume] skipping {skipped} episodes already on the volume")
     return s_col, t_col, i_col, seed_col
 
 
@@ -196,8 +208,11 @@ def _run_sweep(policy_type: str, suites: list[str], task_ids: list[int] | None, 
                model_id: str, seed: int, write_video: bool) -> dict:
     from harness.rollout.rollout_udf import build_rollout_dataframe
 
-    s, t, i, sd = _enumerate_specs(suites, task_ids, episodes, seed)
     out_dir = f"{OUTPUT_DIR}/rollouts/{policy_type}"
+    s, t, i, sd = _enumerate_specs(suites, task_ids, episodes, seed, out_dir=out_dir)
+    if not s:
+        return {"policy_type": policy_type, "episodes": 0, "successes": 0,
+                "out_dir": out_dir, "summary": {}, "note": "all episodes already on volume"}
     df = build_rollout_dataframe(
         s, t, i, sd, policy_type=policy_type, out_dir=out_dir, model_id=model_id,
         frames_dir=f"{OUTPUT_DIR}/frames/{policy_type}", videos_dir=f"{OUTPUT_DIR}/videos/{policy_type}",

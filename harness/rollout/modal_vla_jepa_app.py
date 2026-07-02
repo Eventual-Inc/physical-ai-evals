@@ -140,18 +140,31 @@ def download_vla_jepa() -> dict:
     return paths
 
 
-def _enumerate_specs(suites: list[str], task_ids: list[int] | None, episodes: int, seed: int):
+def _enumerate_specs(suites: list[str], task_ids: list[int] | None, episodes: int, seed: int,
+                     out_dir: str | None = None):
+    """Expand (suites × tasks × episodes) into spec columns, skipping episodes whose parquet
+    part already exists in ``out_dir`` — sweeps become resumable (a re-run finishes stragglers
+    instead of redoing everything; part filenames are the deterministic episode ids)."""
+    import os
+
     from harness.rollout.libero_runner import _libero_num_tasks
 
-    s_col, t_col, i_col, seed_col = [], [], [], []
+    s_col, t_col, i_col, seed_col, skipped = [], [], [], [], 0
     for suite in suites:
         tasks = task_ids if task_ids is not None else range(_libero_num_tasks(suite))
         for task_id in tasks:
             for init_state_id in range(episodes):
+                if out_dir and os.path.exists(
+                    os.path.join(out_dir, f"{suite}__{task_id}__{init_state_id}__{seed}.parquet")
+                ):
+                    skipped += 1
+                    continue
                 s_col.append(suite)
                 t_col.append(int(task_id))
                 i_col.append(init_state_id)
                 seed_col.append(seed)
+    if skipped:
+        print(f"[resume] skipping {skipped} episodes already on the volume")
     return s_col, t_col, i_col, seed_col
 
 
@@ -161,8 +174,11 @@ def run_sweep_vla_jepa(suites: list[str], task_ids: list[int] | None = None, epi
                        write_video: bool = True) -> dict:
     from harness.rollout.rollout_udf import build_rollout_dataframe
 
-    s, t, i, sd = _enumerate_specs(suites, task_ids, episodes, seed)
     out_dir = f"{OUTPUT_DIR}/rollouts/vla_jepa"
+    s, t, i, sd = _enumerate_specs(suites, task_ids, episodes, seed, out_dir=out_dir)
+    if not s:
+        return {"policy_type": "vla_jepa", "episodes": 0, "successes": 0,
+                "out_dir": out_dir, "summary": {}, "note": "all episodes already on volume"}
     df = build_rollout_dataframe(
         s, t, i, sd,
         policy_type="vla_jepa",
