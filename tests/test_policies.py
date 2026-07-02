@@ -1,15 +1,16 @@
 """Policy adapter tests — OpenVLA + VLA-JEPA plumbing via injected fake backends.
 
-No GPU / weights / torch / transformers / lerobot needed: each adapter takes an injected
-backend (``_vla``/``_processor``, WebSocket ``_client``) so we can verify prompt construction,
-batch assembly, action post-processing (shape/dtype/clip-to-7), control_mode, and the required
-chunk-reset — the parts that don't need real inference. Real-weight inference is exercised in the
-GPU env (Modal), not here.
+No GPU / weights / torch-model / transformers / lerobot needed: each adapter takes an injected
+backend (OpenVLA ``_vla``/``_processor``; VLA-JEPA ``_policy``/``_preprocessor``/
+``_postprocessor``) so we verify prompt/batch construction, dtype/range contracts, action
+post-processing, and reset semantics — the parts that don't need real inference. Real-weight
+inference is exercised in the GPU env (Modal), not here.
 """
 
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from harness.policies.openvla import LIBERO_CHECKPOINTS, OpenVLAPolicy
 from harness.policies.vla_jepa import VLAJEPAPolicy
@@ -37,30 +38,39 @@ class _FakeVLA:
         return self._action
 
 
-class _FakeVLAJEPAClient:
-    def __init__(self):
-        self.calls = []
+class _FakeLRPolicy:
+    """Mimics lerobot's PreTrainedPolicy inference surface: reset() + select_action(batch).
 
-    def infer(self, payload):
-        self.calls.append(payload)
-        # two-action chunk. First action has open_gripper=1 -> LIBERO -1, second 0 -> +1.
-        return {
-            "ok": True,
-            "data": {
-                "normalized_actions": np.asarray(
-                    [[[0.0, 0.5, -0.5, 0.0, 0.0, 0.0, 0.75],
-                      [1.0, -1.0, 0.0, 0.5, -0.5, 0.0, 0.25]]],
-                    dtype=np.float32,
-                )
-            },
-        }
+    The real policy dequeues one action per call from an internal 7-step queue; the fake just
+    returns a fixed (1, 7) action and records every batch it saw.
+    """
+
+    def __init__(self, action=None):
+        import torch
+
+        self._action = action if action is not None else torch.tensor(
+            [[0.1, -0.2, 0.3, 0.0, 0.0, 0.0, -1.0]], dtype=torch.float32
+        )
+        self.reset_calls = 0
+        self.batches: list[dict] = []
+
+    def reset(self):
+        self.reset_calls += 1
+
+    def select_action(self, batch):
+        self.batches.append(batch)
+        return self._action
 
 
-_VLA_JEPA_STATS = {
-    "min": [-1.0, -1.0, -1.0, -2.0, -2.0, -2.0, 0.0],
-    "max": [1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 1.0],
-    "mask": [True, True, True, True, True, True, False],
-}
+def _obs(h=8, w=8, with_state=True):
+    obs = {
+        "image": np.full((h, w, 3), 255, np.uint8),
+        "wrist_image": np.zeros((h, w, 3), np.uint8),
+        "instruction": "",
+    }
+    if with_state:
+        obs["state"] = np.zeros(8, np.float32)
+    return obs
 
 
 # ------------------------------------------------------------------ OpenVLA
@@ -99,58 +109,77 @@ def test_openvla_checkpoint_table_consistent():
         assert key == suite
 
 
-# ------------------------------------------------------------------ VLA-JEPA
+# ------------------------------------------------------------------ VLA-JEPA (in-process lerobot)
 
-def test_vlajepa_websocket_chunk_unnorm_and_gripper_plumbing():
-    fake = _FakeVLAJEPAClient()
-    p = VLAJEPAPolicy(
-        device="cpu",
-        image_size=(8, 8),
-        _client=fake,
-        _action_stats=_VLA_JEPA_STATS,
-        _action_chunk_size=2,
-        unnorm_key="franka",
-    )
+def test_vlajepa_batch_contract():
+    torch = pytest.importorskip("torch")
+    fake = _FakeLRPolicy()
+    p = VLAJEPAPolicy(device="cpu", _policy=fake)
     assert p.control_mode == "relative"
 
     p.reset("pick up the cup")
-    obs = {
-        "image": np.zeros((8, 8, 3), np.uint8),
-        "wrist_image": np.zeros((8, 8, 3), np.uint8),
-        "state": np.zeros(8, np.float32),
-    }
-    a0 = p.act(obs)
-    a1 = p.act(obs)
+    assert fake.reset_calls == 1                       # reset() forwards (clears action queue)
 
-    assert len(fake.calls) == 1                  # second action came from the cached chunk
-    assert a0.shape == (7,) and a0.dtype == np.float32
-    np.testing.assert_allclose(a0[:6], [0.0, 0.5, -0.5, 0.0, 0.0, 0.0], rtol=1e-6)
-    np.testing.assert_allclose(a1[:6], [1.0, -1.0, 0.0, 1.0, -1.0, 0.0], rtol=1e-6)
-    assert a0[6] == -1.0                         # open_gripper=1 -> LIBERO open
-    assert a1[6] == 1.0                          # open_gripper=0 -> LIBERO close
+    action = p.act(_obs())
+    assert action.shape == (7,) and action.dtype == np.float32
+    np.testing.assert_allclose(action, [0.1, -0.2, 0.3, 0.0, 0.0, 0.0, -1.0], rtol=1e-6)
 
-    payload = fake.calls[0]
-    assert payload["instructions"] == ["pick up the cup"]
-    assert payload["unnorm_key"] == "franka"
-    assert len(payload["batch_images"][0]) == 2
-    assert payload["batch_images"][0][0].shape == (8, 8, 3)
-    assert payload["state"][0].shape == (1, 8)
+    batch = fake.batches[0]
+    assert set(batch) == {"observation.images.image", "observation.images.image2",
+                          "observation.state", "task"}
+    assert batch["task"] == "pick up the cup"          # instruction threads through reset
+    img = batch["observation.images.image"]
+    assert isinstance(img, torch.Tensor) and img.shape == (1, 3, 8, 8)
+    assert img.dtype == torch.float32
+    assert float(img.max()) <= 1.0 and float(img.max()) > 0.99   # uint8 255 -> 1.0 (the /255 contract)
+    assert batch["observation.images.image2"].shape == (1, 3, 8, 8)
+    assert batch["observation.state"].shape == (1, 8)
 
 
-def test_vlajepa_reset_clears_cached_chunk():
-    fake = _FakeVLAJEPAClient()
-    p = VLAJEPAPolicy(
-        device="cpu",
-        image_size=(4, 4),
-        _client=fake,
-        _action_stats=_VLA_JEPA_STATS,
-        _action_chunk_size=2,
-    )
+def test_vlajepa_one_select_action_per_act():
+    pytest.importorskip("torch")
+    fake = _FakeLRPolicy()
+    p = VLAJEPAPolicy(device="cpu", _policy=fake)
     p.reset("t")
-    p.act({"image": np.zeros((4, 4, 3), np.uint8)})
-    p.reset("t2")
-    p.act({"image": np.zeros((4, 4, 3), np.uint8)})  # reset forces a fresh server call
-    assert len(fake.calls) == 2
-    assert fake.calls[1]["instructions"] == ["t2"]
-    assert len(fake.calls[1]["batch_images"][0]) == 1
-    assert "state" not in fake.calls[1]
+    for _ in range(3):
+        p.act(_obs())
+    # chunking lives INSIDE the lerobot policy (its internal queue); the adapter calls
+    # select_action exactly once per act and keeps no cache of its own.
+    assert len(fake.batches) == 3
+
+
+def test_vlajepa_pre_post_pipelines_applied():
+    torch = pytest.importorskip("torch")
+    seen = {}
+
+    def pre(batch):
+        seen["pre"] = set(batch)
+        return batch
+
+    def post(action):
+        seen["post_shape"] = tuple(action.shape)
+        return action * 2.0
+
+    p = VLAJEPAPolicy(device="cpu", _policy=_FakeLRPolicy(), _preprocessor=pre, _postprocessor=post)
+    p.reset("t")
+    action = p.act(_obs())
+    assert "observation.images.image" in seen["pre"]
+    assert seen["post_shape"] == (1, 7)
+    np.testing.assert_allclose(action[0], 0.2, rtol=1e-6)  # postprocessor output is what act returns
+
+
+def test_vlajepa_state_omitted_when_absent():
+    pytest.importorskip("torch")
+    fake = _FakeLRPolicy()
+    p = VLAJEPAPolicy(device="cpu", _policy=fake)
+    p.reset("t")
+    p.act(_obs(with_state=False))
+    assert "observation.state" not in fake.batches[0]
+
+
+def test_vlajepa_wrist_image_required():
+    pytest.importorskip("torch")
+    p = VLAJEPAPolicy(device="cpu", _policy=_FakeLRPolicy())
+    p.reset("t")
+    with pytest.raises(ValueError, match="wrist"):
+        p.act({"image": np.zeros((8, 8, 3), np.uint8), "wrist_image": None})

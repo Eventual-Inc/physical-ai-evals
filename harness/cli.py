@@ -43,11 +43,8 @@ def _build_parser() -> argparse.ArgumentParser:
     r.add_argument("--seed", type=int, default=7)  # canonical eval seed (OpenVLA-origin protocol)
     r.add_argument("--control-mode", default="relative", choices=["relative", "absolute"])
     r.add_argument("--model-id", default=None, help="override the policy checkpoint id")
-    r.add_argument("--unnorm-key", default=None, help="action unnormalization key (OpenVLA suite key; VLA-JEPA default: franka)")
-    r.add_argument("--vla-jepa-host", default="127.0.0.1",
-                   help="VLA-JEPA policy-server host (only for --policy vla_jepa)")
-    r.add_argument("--vla-jepa-port", type=int, default=10093,
-                   help="VLA-JEPA policy-server port (only for --policy vla_jepa)")
+    r.add_argument("--unnorm-key", default=None,
+                   help="OpenVLA action unnormalization key (the SUITE name, e.g. libero_goal)")
     r.add_argument("--device", default="cuda", choices=["cuda", "cpu", "mps"])
     r.add_argument("--out", type=Path, default=Path("data/rollouts"))
     r.add_argument("--run-id", default=None)
@@ -117,13 +114,7 @@ def _cmd_rollout(args: argparse.Namespace) -> int:
         )
     else:
         from harness.policies.vla_jepa import VLAJEPAPolicy
-        policy = VLAJEPAPolicy(
-            policy_path=cfg.model_id or None,
-            device=cfg.device,
-            host=args.vla_jepa_host,
-            port=args.vla_jepa_port,
-            unnorm_key=cfg.unnorm_key,
-        )
+        policy = VLAJEPAPolicy(policy_path=cfg.model_id or None, device=cfg.device)
 
     results = run_sweep(cfg, policy)
     n_success = sum(r.success for r in results)

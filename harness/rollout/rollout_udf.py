@@ -44,9 +44,6 @@ def _build_policy(
     device: str,
     unnorm_key: str | None,
     attn_impl: str,
-    *,
-    vla_jepa_host: str = "127.0.0.1",
-    vla_jepa_port: int = 10093,
 ):
     if policy_type == "openvla":
         from harness.policies.openvla import OpenVLAPolicy
@@ -56,13 +53,7 @@ def _build_policy(
         )
     if policy_type == "vla_jepa":
         from harness.policies.vla_jepa import VLAJEPAPolicy
-        return VLAJEPAPolicy(
-            policy_path=model_id or "",
-            device=device,
-            host=vla_jepa_host,
-            port=vla_jepa_port,
-            unnorm_key=unnorm_key,
-        )
+        return VLAJEPAPolicy(policy_path=model_id or None, device=device)  # in-process lerobot
     raise ValueError(f"unknown policy_type: {policy_type!r} (expected 'openvla' | 'vla_jepa')")
 
 
@@ -82,8 +73,6 @@ class LiberoRollout:
         device: str = "cuda",
         unnorm_key: str | None = None,
         attn_impl: str = "sdpa",   # sdpa works on A100 without a flash-attn build (see NOTES.md)
-        vla_jepa_host: str = "127.0.0.1",
-        vla_jepa_port: int = 10093,
         camera_height: int = 256,
         camera_width: int = 256,
         num_steps_wait: int = 10,
@@ -102,15 +91,7 @@ class LiberoRollout:
         self.num_steps_wait = num_steps_wait
         self.max_steps = max_steps
         self.env_seed = env_seed
-        self.policy = _build_policy(
-            policy_type,
-            model_id,
-            device,
-            unnorm_key,
-            attn_impl,
-            vla_jepa_host=vla_jepa_host,
-            vla_jepa_port=vla_jepa_port,
-        )  # once per worker
+        self.policy = _build_policy(policy_type, model_id, device, unnorm_key, attn_impl)  # once per worker
         self.writer = RolloutWriter(
             out_dir, frames_dir, videos_dir, run_id=run_id,
             write_frames=write_frames, write_video=write_video,

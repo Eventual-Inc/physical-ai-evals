@@ -164,6 +164,28 @@ unnormalized LIBERO action at a time, and `reset()` clears the cached chunk betw
 
 ## Rollout / Modal
 
+- **VLA-JEPA is now IN-PROCESS via the lerobot port (2026-07-02) — the StarVLA WebSocket
+  server route is deleted (git history keeps it).** lerobot merged a first-party `vla_jepa`
+  policy (2026-06-04, main-only until the next release → pinned at git SHA `052d3294`, the way
+  openpi pins lerobot) and the official `lerobot/VLA-JEPA-LIBERO` safetensors checkpoint is on
+  the Hub. What this deletes: the ginwind repo clone, the server subprocess + port-wait, manual
+  `dataset_statistics.json` unnorm, the gripper-convention flip (the lerobot postprocessor
+  unnormalizes AND binarizes the gripper to LIBERO-ready {-1,+1}), and the client-side chunk
+  cache (the policy's internal `n_action_steps=7` queue dequeues one action per
+  `select_action`). Gotchas that remain load-bearing:
+    - **`lerobot[libero]` → the `hf-libero` wheel ships LIBERO's code + bddl/assets/init_files**
+      with the same `libero.libero` import paths — no git clone, no `LIBERO_CONFIG_PATH`
+      pre-write, no PYTHONPATH tricks. It replaces the whole clone+config-patch machinery.
+    - **Images must be (1,3,H,W) float32 in [0,1]** — lerobot's Qwen interface calls its
+      processor with `do_rescale=False`, so 0-255 floats fail SILENTLY (the classic
+      preprocessing-mismatch failure mode; see docs/EVAL_PATTERNS.md invariant).
+    - Processor pipelines are NOT auto-wired by `from_pretrained` — load them with
+      `make_pre_post_processors(..., preprocessor_overrides={"device_processor": {"device": ...}})`
+      (the saved JSON pins device=cpu; this mirrors lerobot_eval).
+    - The VLA-JEPA image is py3.12 / transformers 5.4–5.6 / numpy 2.x — SEPARATE image from
+      OpenVLA's py3.10/4.40.1 (two-app split stands). numpy-2 × daft/pyarrow inside that image
+      is a smoke-test watch item; loading also pulls Qwen3-VL-2B + V-JEPA2 (3 HF repos; the
+      world-model encoder loads even though inference never uses it — faithful default).
 - **Single-image LIBERO + OpenVLA: VERIFIED on Modal (2026-06-12).** Image builds + LIBERO
   imports + benchmark/bddl resolution green (CPU smoke). Resolved/pinned set: **python 3.10,
   torch 2.2.0, transformers 4.40.1, robosuite 1.4.1, mujoco 3.9.0, numpy==1.26.4 (pinned),
