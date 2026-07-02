@@ -51,11 +51,14 @@ openvla = [
   # flash-attn==2.5.5 is documented but install AFTER the editable install, and NOT on
   # Apple Silicon/CPU (use attn_implementation='sdpa'/'eager' there).
 ]
-# --- VLA-JEPA headliner. Modern LeRobot/Qwen3-VL stack; conflicts with OpenVLA's old
-#     transformers. lerobot 0.5.1 needs Python >=3.12 (vs VLA-JEPA repo's 3.10) -> pin
-#     the lerobot the VLA-JEPA path actually uses. Run in its OWN env. See NOTES.md. ---
+# --- VLA-JEPA headliner. The public repo uses StarVLA + a WebSocket policy server,
+#     not LeRobot's PreTrainedPolicy factory. Install github.com/ginwind/VLA-JEPA
+#     separately for the model server; this extra covers the lightweight client-side deps.
 vla_jepa = [
-  "lerobot>=0.5.0",    # policy.type='vla_jepa'; pin to the version VLA-JEPA integrates with
+  "websockets>=12",
+  "msgpack>=1.0",
+  "msgpack-numpy>=0.4.8",
+  "pillow>=10.0",
 ]
 # --- dataset ingest. Strategy (NOTES.md): DROID/LeRobot delegate to Daft-native readers
 #     (PRs #7089/#7090); we OWN HDF5. NO TensorFlow anywhere — Daft has none either, and we
@@ -63,6 +66,9 @@ vla_jepa = [
 ingest_hdf5 = ["h5py>=3.10"]                              # robomimic/LIBERO demos + raw-DROID trajectory.h5
 ingest_droid = ["h5py>=3.10", "daft[video]", "pillow"]   # daft.datasets.droid.raw() (raw DROID) + h5py for trajectory.h5
 ingest_lerobot = ["daft[video,huggingface]", "pillow"]   # daft.datasets.lerobot (v3.0); add "lerobot>=0.5.0" ONLY for the v2.1 fallback
+ingest_aloha = ["h5py>=3.10"]                             # ALOHA / Mobile ALOHA ACT-style HDF5 episodes
+ingest_egodex = ["h5py>=3.10"]                            # EgoDex HDF5 annotations; MP4 paths are referenced, not decoded
+ingest_abc = []                                           # ABC exported states_actions.bin episodes; raw MCAP conversion stays upstream
 # NOTE: daft.datasets.{droid,lerobot} arrive when #7089/#7090 land in a Daft release; our
 # pinned daft==0.7.15 does not ship them yet (the extras above name the runtime deps, not the API).
 modal = ["modal>=0.64"]   # `modal run harness/rollout/modal_app.py ...` (deployment only)

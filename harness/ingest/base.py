@@ -50,6 +50,14 @@ DEFAULT_CAMERA_ROLE_MAPS: dict[str, dict[str, str]] = {
         "agentview_rgb": PRIMARY,          # native-LIBERO alias
         "eye_in_hand_rgb": WRIST,
     },
+    "aloha": {
+        "cam_high": PRIMARY,
+        "cam_low": PRIMARY,
+        "cam_left_wrist": WRIST,
+        "cam_right_wrist": WRIST,
+    },
+    "egodex": {},
+    "abc": {},
 }
 
 
@@ -173,7 +181,7 @@ class Episode:
                             if frame_path_for else None),
                 wrist_path=(wrist_path_for(self.episode_id, step.timestep)
                             if wrist_path_for else None),
-                video_path=video_path,
+                video_path=video_path or self.metadata.get("video_path"),
                 embedding=None,  # populated by the embedding pass, never at ingest time
             )
             rows.append(row)
