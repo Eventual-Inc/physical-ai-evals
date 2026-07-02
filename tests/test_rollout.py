@@ -71,6 +71,7 @@ def _cfg(tmp_path, **kw):
         suites=("libero_goal",),
         task_ids=(0,),
         n_episodes_per_task=2,
+        seed=0,                      # pin: episode-id assertions below embed the seed
         num_steps_wait=0,            # fake env counts every step; skip settle for the test
         write_frames=False,
         write_video=False,
