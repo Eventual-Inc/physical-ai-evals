@@ -168,6 +168,18 @@ def test_vlajepa_pre_post_pipelines_applied():
     np.testing.assert_allclose(action[0], 0.2, rtol=1e-6)  # postprocessor output is what act returns
 
 
+def test_vlajepa_accepts_derotated_views():
+    # the runner de-rotates with img[::-1, ::-1] -> negative-stride view; torch.from_numpy
+    # rejects those unless the adapter copies to contiguous (regression: real GPU run 2026-07-02)
+    pytest.importorskip("torch")
+    fake = _FakeLRPolicy()
+    p = VLAJEPAPolicy(device="cpu", _policy=fake)
+    p.reset("t")
+    base = np.arange(8 * 8 * 3, dtype=np.uint8).reshape(8, 8, 3)
+    p.act({"image": base[::-1, ::-1], "wrist_image": base[::-1, ::-1], "instruction": ""})
+    assert fake.batches[0]["observation.images.image"].shape == (1, 3, 8, 8)
+
+
 def test_vlajepa_state_omitted_when_absent():
     pytest.importorskip("torch")
     fake = _FakeLRPolicy()

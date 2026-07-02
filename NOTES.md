@@ -184,6 +184,11 @@ unnormalized LIBERO action at a time, and `reset()` clears the cached chunk betw
     - Processor pipelines are NOT auto-wired by `from_pretrained` — load them with
       `make_pre_post_processors(..., preprocessor_overrides={"device_processor": {"device": ...}})`
       (the saved JSON pins device=cpu; this mirrors lerobot_eval).
+    - **The 180° de-rotation view breaks `torch.from_numpy`.** Our runner de-rotates with
+      `img[::-1, ::-1]` — a negative-stride numpy VIEW. PIL-based policies (OpenVLA) copy
+      implicitly, but torch-based ones crash: "At least one stride in the given numpy array is
+      negative". Fix: `np.ascontiguousarray` in the adapter's image conversion. Caught on the
+      first real GPU rollout — exactly the kind of policy-boundary landmine the smoke can't see.
     - **`hf-libero` kept LIBERO's interactive first-import prompt.** The wheel still runs
       `input("...custom path for the dataset folder?...")` when no config exists → EOFError in
       a container (the same trap as the raw clone, one packaging layer later). Fix: at image

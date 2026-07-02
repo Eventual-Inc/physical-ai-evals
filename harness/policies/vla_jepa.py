@@ -116,7 +116,9 @@ class VLAJEPAPolicy(Policy):
         """
         import torch
 
-        arr = np.asarray(img)
+        # ascontiguousarray: the runner's 180° de-rotation (img[::-1, ::-1]) yields a
+        # negative-stride VIEW, which torch.from_numpy rejects outright (NOTES.md).
+        arr = np.ascontiguousarray(np.asarray(img))
         return (
             torch.from_numpy(arr).permute(2, 0, 1).contiguous().float().div_(255.0).unsqueeze(0)
         )
