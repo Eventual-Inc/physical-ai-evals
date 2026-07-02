@@ -87,7 +87,7 @@ def vla_jepa_image() -> modal.Image:
 
 
 def _fn_kwargs(image: modal.Image, *, gpu: str | None = None, cpu: float = 8, memory: int = 65536,
-               timeout: int = 7200) -> dict:
+               timeout: int = 14400) -> dict:
     kwargs: dict = {
         "image": image,
         "cpu": cpu,

@@ -129,7 +129,7 @@ def openvla_image() -> modal.Image:
 
 
 def _fn_kwargs(image: modal.Image, *, gpu: str | None = None, cpu: float = 8, memory: int = 32768,
-               timeout: int = 7200) -> dict:
+               timeout: int = 14400) -> dict:
     kwargs: dict = {
         "image": image, "cpu": cpu, "memory": memory, "timeout": timeout, "region": MODAL_REGION,
         "volumes": VOLUMES, "secrets": [HF_SECRET], "enable_memory_snapshot": False,
