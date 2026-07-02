@@ -1,115 +1,241 @@
 """VLA-JEPA policy adapter — the comparative HEADLINER.
 
-VLA-JEPA (arXiv 2602.10098, ginwind, early 2026) ships a first-party LeRobot policy
-(``policy.type='vla_jepa'``) with checkpoints under ``lerobot/VLA-JEPA-*``
-(``lerobot/VLA-JEPA-LIBERO`` is the LIBERO one). At inference it is a Qwen3-VL-2B backbone +
-DiT flow-matching action head; the V-JEPA2 latent world model is training-only.
+The public VLA-JEPA repo (``ginwind/VLA-JEPA``) does not expose a LeRobot
+``PreTrainedPolicy`` factory. Its LIBERO evaluation starts a StarVLA policy server
+(``deployment/model_server/server_policy.py``) and talks to it over a WebSocket client.
 
-We adapt the STANDARD LeRobot ``PreTrainedPolicy`` interface (``from_pretrained`` + ``reset``
-+ ``select_action``). The action CHUNKING (chunk_size=7, n_action_steps=7) lives INSIDE the
-LeRobot policy: ``select_action`` buffers a predicted chunk and re-plans only on chunk
-boundaries, and ``reset()`` clears that buffer — so this adapter stays thin and just forwards
-``reset``/``select_action``. ``reset()`` between episodes is REQUIRED or a new episode replays
-the previous chunk.
+This adapter follows that real surface:
 
-HONEST CAVEATS (see NOTES.md, do NOT paper over): the exact LeRobot policy CLASS symbol was
-not verified verbatim — we load via the policy factory / ``from_pretrained``, NOT a guessed
-class import. Do NOT confuse VLA-JEPA (2602.10098) with the unrelated JEPA-VLA (2602.11832).
-The modern LeRobot/Qwen3-VL stack conflicts with OpenVLA's old transformers — own env.
+* ``reset(instruction)`` clears the local action-chunk cache.
+* ``act(observation)`` sends de-rotated LIBERO images + state to the server when a new
+  chunk is needed, unnormalizes the returned ``normalized_actions``, and returns one
+  7-DoF LIBERO action.
+* The gripper is converted from VLA-JEPA's open-probability convention (0/1) to the
+  LIBERO command convention (-1=open, +1=close), matching the official eval script.
 
-Heavy deps (lerobot/torch) are imported lazily; an injected backend (``_policy``) makes the
-batch-assembly + chunk-reset plumbing unit-testable without weights or a GPU.
+Heavy deps are still lazy. Unit tests inject a fake client and action stats, so no
+server, GPU, or VLA-JEPA checkout is needed for CPU verification.
 """
 
 from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 from harness.rollout.policy import Observation, Policy
 
-#: First-party LeRobot checkpoints (HF). LIBERO checkpoint uses 2 cameras (agentview + wrist).
-#: Reported LIBERO success: spatial 95 / object 100 / goal 98 / long 93 (~96.5%) — UNVERIFIED.
-LEROBOT_CHECKPOINTS: dict[str, str] = {
-    "libero": "lerobot/VLA-JEPA-LIBERO",
-    "pretrain": "lerobot/VLA-JEPA-Pretrain",
-    "simpler": "lerobot/VLA-JEPA-SimplerEnv",
-}
+VLA_JEPA_REPO_ID = "ginwind/VLA-JEPA"
+DEFAULT_LIBERO_CHECKPOINT = "LIBERO/checkpoints/VLA-JEPA-LIBERO.pt"
+DEFAULT_UNNORM_KEY = "franka"
+DEFAULT_IMAGE_SIZE = (224, 224)
 
 
-def _to_numpy(x):
-    if hasattr(x, "detach"):       # torch tensor
+def _to_numpy(x) -> np.ndarray:
+    if hasattr(x, "detach"):  # torch tensor
         x = x.detach().cpu().numpy()
     return np.asarray(x)
 
 
-def _to_batched_tensor(arr, device: str):
-    """array-like -> a leading-batch tensor on ``device``. Degrades to a batched ndarray when
-    torch is absent (unit tests); the real VLA-JEPA env has torch via lerobot."""
-    if arr is None:
-        return None
+def _resize_uint8_hwc(image, size: tuple[int, int] = DEFAULT_IMAGE_SIZE) -> np.ndarray:
+    """Resize an HWC uint8 image using Pillow, matching the official 224x224 VLA-JEPA eval."""
+    arr = np.asarray(image)
+    if arr.shape[:2] == size:
+        return arr.astype(np.uint8, copy=False)
     try:
-        import torch
-        return torch.as_tensor(np.asarray(arr)).unsqueeze(0).to(device)
-    except ImportError:
-        return np.asarray(arr)[None, ...]
+        from PIL import Image
+    except ImportError as err:  # pragma: no cover - env-dependent
+        raise ImportError("VLA-JEPA image resize requires Pillow.") from err
+    pil = Image.fromarray(arr.astype(np.uint8, copy=False))
+    return np.asarray(pil.resize(size[::-1], Image.Resampling.BILINEAR), dtype=np.uint8)
+
+
+def _resolve_checkpoint_path(policy_path: str | os.PathLike[str] | None) -> Path:
+    """Accept either a VLA-JEPA repo snapshot root or the concrete LIBERO ``.pt`` file."""
+    raw = policy_path or os.environ.get("VLA_JEPA_CHECKPOINT_PATH") or VLA_JEPA_REPO_ID
+    path = Path(str(raw)).expanduser()
+    if path.suffix == ".pt":
+        return path
+    return path / DEFAULT_LIBERO_CHECKPOINT
+
+
+def _checkpoint_root(checkpoint_path: Path) -> Path:
+    # .../LIBERO/checkpoints/VLA-JEPA-LIBERO.pt -> .../LIBERO
+    if checkpoint_path.parent.name == "checkpoints":
+        return checkpoint_path.parent.parent
+    return checkpoint_path.parent
+
+
+def load_action_metadata(
+    checkpoint_path: str | os.PathLike[str],
+    *,
+    unnorm_key: str | None = None,
+) -> tuple[dict[str, Any], str, int]:
+    """Load VLA-JEPA action stats + chunk size from the HF snapshot next to the checkpoint."""
+    ckpt = Path(checkpoint_path)
+    root = _checkpoint_root(ckpt)
+    stats_path = root / "dataset_statistics.json"
+    config_path = root / "config.json"
+    if not stats_path.exists():
+        raise FileNotFoundError(
+            f"Missing VLA-JEPA action stats at {stats_path}. Pass a local snapshot root "
+            f"for {VLA_JEPA_REPO_ID} or the concrete {DEFAULT_LIBERO_CHECKPOINT} file."
+        )
+
+    stats_blob = json.loads(stats_path.read_text())
+    key = unnorm_key or DEFAULT_UNNORM_KEY
+    if key not in stats_blob:
+        if len(stats_blob) == 1:
+            key = next(iter(stats_blob))
+        else:
+            raise KeyError(f"VLA-JEPA unnorm_key={key!r} not found. Available: {sorted(stats_blob)}")
+
+    action_stats = stats_blob[key]["action"]
+    chunk_size = 7
+    if config_path.exists():
+        cfg = json.loads(config_path.read_text())
+        future = cfg.get("framework", {}).get("action_model", {}).get("future_action_window_size")
+        if future is not None:
+            chunk_size = int(future) + 1
+    return action_stats, key, chunk_size
+
+
+def _unnormalize_actions(normalized_actions: np.ndarray, action_stats: dict[str, Any]) -> np.ndarray:
+    """Mirror VLA-JEPA's ``M1Inference.unnormalize_actions`` helper."""
+    arr = np.asarray(normalized_actions, dtype=np.float32)
+    if arr.ndim != 2:
+        raise ValueError(f"expected normalized actions with shape (chunk, action_dim), got {arr.shape}")
+    arr = np.clip(arr.copy(), -1.0, 1.0)
+    if arr.shape[1] >= 7:
+        arr[:, 6] = np.where(arr[:, 6] < 0.5, 0.0, 1.0)
+
+    low = np.asarray(action_stats.get("min", action_stats.get("q01")), dtype=np.float32)
+    high = np.asarray(action_stats.get("max", action_stats.get("q99")), dtype=np.float32)
+    if low.shape[0] != arr.shape[1] or high.shape[0] != arr.shape[1]:
+        raise ValueError(f"action stats dim mismatch: actions={arr.shape[1]} low={low.shape} high={high.shape}")
+
+    mask = np.asarray(action_stats.get("mask", np.ones_like(low, dtype=bool)), dtype=bool)
+    return np.where(mask, 0.5 * (arr + 1.0) * (high - low) + low, arr).astype(np.float32)
+
+
+def _libero_gripper_from_open(open_value: float | np.ndarray) -> float:
+    """VLA-JEPA open gripper value (0/1) -> LIBERO command (-1=open, +1=close)."""
+    v = float(np.asarray(open_value, dtype=np.float32).reshape(-1)[0])
+    return float(1.0 - 2.0 * (v > 0.5))
 
 
 class VLAJEPAPolicy(Policy):
-    """VLA-JEPA headliner, adapted from a LeRobot ``PreTrainedPolicy``. Chunking is internal to
-    the LeRobot policy; this adapter forwards ``reset``/``select_action`` and maps observations
-    to the LeRobot batch dict (camera keys agentview/wrist). ``control_mode='relative'``.
+    """VLA-JEPA via its official WebSocket policy server.
+
+    ``policy_path`` is either a local HF snapshot root for ``ginwind/VLA-JEPA`` or the
+    concrete ``LIBERO/checkpoints/VLA-JEPA-LIBERO.pt`` file. The policy server must already
+    be running unless a fake ``_client`` is injected by tests.
     """
 
     control_mode = "relative"
 
     def __init__(
         self,
-        policy_path: str = "lerobot/VLA-JEPA-LIBERO",
+        policy_path: str | os.PathLike[str] | None = None,
         device: str = "cuda",
         *,
-        _policy=None,
+        host: str = "127.0.0.1",
+        port: int = 10093,
+        unnorm_key: str | None = None,
+        image_size: tuple[int, int] = DEFAULT_IMAGE_SIZE,
+        use_ddim: bool = True,
+        num_ddim_steps: int = 10,
+        _client=None,
+        _action_stats: dict[str, Any] | None = None,
+        _action_chunk_size: int | None = None,
     ) -> None:
-        self.policy_path = policy_path
+        self.policy_path = _resolve_checkpoint_path(policy_path)
         self.device = device
+        self.host = host
+        self.port = port
+        self.image_size = image_size
+        self.use_ddim = use_ddim
+        self.num_ddim_steps = num_ddim_steps
         self._instruction = ""
-        if _policy is not None:      # test/injection seam
-            self.policy = _policy
-        else:
-            self._load()
+        self._step = 0
+        self._raw_actions: np.ndarray | None = None
 
-    def _load(self) -> None:
-        """Load the VLA-JEPA LeRobot policy via the factory (NOT a guessed class import)."""
+        if _action_stats is None:
+            self.action_stats, self.unnorm_key, self.action_chunk_size = load_action_metadata(
+                self.policy_path, unnorm_key=unnorm_key
+            )
+        else:
+            self.action_stats = _action_stats
+            self.unnorm_key = unnorm_key or DEFAULT_UNNORM_KEY
+            self.action_chunk_size = int(_action_chunk_size or 7)
+
+        self.client = _client if _client is not None else self._connect_client()
+
+    def _connect_client(self):
         try:
-            from lerobot.policies.factory import make_policy
+            from deployment.model_server.tools.websocket_policy_client import WebsocketClientPolicy
         except ImportError as err:  # pragma: no cover - env-dependent
             raise ImportError(
-                "VLA-JEPA needs the LeRobot stack: pip install -e '.[vla_jepa]'. If the "
-                "'vla_jepa' policy type isn't registered, fall back to the research repo "
-                "(github.com/ginwind/VLA-JEPA) — do NOT guess a class name (see NOTES.md)."
+                "VLA-JEPA rollouts need the ginwind/VLA-JEPA checkout on PYTHONPATH. "
+                "Start deployment/model_server/server_policy.py in that env, then pass "
+                "--model-id /path/to/LIBERO/checkpoints/VLA-JEPA-LIBERO.pt."
             ) from err
-        self.policy = make_policy(policy_type="vla_jepa", policy_path=self.policy_path)
-        self.policy.to(self.device).eval()
+
+        client = WebsocketClientPolicy(self.host, self.port)
+        # Official client exposes this as a ping; it does not mutate model device on the server.
+        if hasattr(client, "init_device"):
+            client.init_device(self.device)
+        return client
 
     def reset(self, instruction: str) -> None:
-        """Store the instruction and CLEAR the action-chunk buffer (required between episodes)."""
+        """Start a new episode and clear the cached action chunk."""
         self._instruction = instruction
-        if hasattr(self.policy, "reset"):
-            self.policy.reset()
+        self._step = 0
+        self._raw_actions = None
 
     def act(self, observation: Observation) -> np.ndarray:
-        """Assemble the LeRobot batch and return one action (the policy buffers the chunk)."""
-        action = self.policy.select_action(self._build_batch(observation))
-        return np.asarray(_to_numpy(action), dtype=np.float32).reshape(-1)[: self.action_dim]
+        """Return one unnormalized LIBERO action from the current or newly fetched chunk."""
+        if self._raw_actions is None or self._step % self.action_chunk_size == 0:
+            self._raw_actions = self._request_action_chunk(observation)
 
-    def _build_batch(self, obs: Observation) -> dict:
-        batch: dict = {"task": self._instruction}
-        if obs.get("image") is not None:
-            batch["observation.images.agentview"] = _to_batched_tensor(obs["image"], self.device)
-        if obs.get("wrist_image") is not None:
-            batch["observation.images.wrist"] = _to_batched_tensor(obs["wrist_image"], self.device)
-        if obs.get("state") is not None:
-            batch["observation.state"] = _to_batched_tensor(obs["state"], self.device)
-        return batch
+        idx = self._step % self.action_chunk_size
+        action = np.asarray(self._raw_actions[idx], dtype=np.float32).reshape(-1)[: self.action_dim].copy()
+        action[6] = _libero_gripper_from_open(action[6])
+        self._step += 1
+        return action.astype(np.float32, copy=False)
+
+    def _request_action_chunk(self, observation: Observation) -> np.ndarray:
+        images = [_resize_uint8_hwc(observation["image"], self.image_size)]
+        if observation.get("wrist_image") is not None:
+            images.append(_resize_uint8_hwc(observation["wrist_image"], self.image_size))
+
+        payload: dict[str, Any] = {
+            "batch_images": [images],
+            "instructions": [self._instruction],
+            "unnorm_key": self.unnorm_key,
+            "do_sample": False,
+            "use_ddim": self.use_ddim,
+            "num_ddim_steps": self.num_ddim_steps,
+        }
+        if observation.get("state") is not None:
+            payload["state"] = [np.asarray(observation["state"], dtype=np.float32)[None, :]]
+
+        response = self.client.infer(payload)
+        if response.get("ok") is False:
+            raise RuntimeError(f"VLA-JEPA server inference failed: {response.get('error')}")
+
+        data = response.get("data", response)
+        normalized = _to_numpy(data["normalized_actions"])
+        if normalized.ndim == 3:
+            normalized = normalized[0]
+        raw = _unnormalize_actions(normalized, self.action_stats)
+        if raw.shape[0] < self.action_chunk_size:
+            raise ValueError(f"VLA-JEPA returned {raw.shape[0]} actions, expected {self.action_chunk_size}")
+        return raw
 
     def close(self) -> None:
-        self.policy = None
+        if hasattr(self.client, "close"):
+            self.client.close()

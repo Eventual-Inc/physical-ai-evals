@@ -23,11 +23,13 @@ from harness.rollout.policy import Observation, Policy
 
 #: Suite key -> (published OpenVLA fine-tune id, its unnorm_key). Wiring these correctly is
 #: the difference between ~95% and ~0% success.
+#: unnorm_key is the SUITE name (verified empirically: the fine-tuned checkpoint's norm_stats is
+#: keyed 'libero_spatial', NOT the '<suite>_no_noops' training-dataset name; see NOTES.md).
 LIBERO_CHECKPOINTS: dict[str, tuple[str, str]] = {
-    "libero_spatial": ("openvla/openvla-7b-finetuned-libero-spatial", "libero_spatial_no_noops"),
-    "libero_object": ("openvla/openvla-7b-finetuned-libero-object", "libero_object_no_noops"),
-    "libero_goal": ("openvla/openvla-7b-finetuned-libero-goal", "libero_goal_no_noops"),
-    "libero_10": ("openvla/openvla-7b-finetuned-libero-10", "libero_10_no_noops"),
+    "libero_spatial": ("openvla/openvla-7b-finetuned-libero-spatial", "libero_spatial"),
+    "libero_object": ("openvla/openvla-7b-finetuned-libero-object", "libero_object"),
+    "libero_goal": ("openvla/openvla-7b-finetuned-libero-goal", "libero_goal"),
+    "libero_10": ("openvla/openvla-7b-finetuned-libero-10", "libero_10"),
 }
 
 #: OpenVLA prompt template. The instruction goes inside the braces.
@@ -105,6 +107,15 @@ class OpenVLAPolicy(Policy):
             low_cpu_mem_usage=True,
             trust_remote_code=True,
         ).to(self.device)
+
+        # Robustness: if our derived unnorm_key isn't among the checkpoint's norm_stats, fall
+        # back to the sole available key (the fine-tunes ship a single dataset's stats). Guards
+        # against the suite-name vs '<suite>_no_noops' naming mismatch (NOTES.md).
+        stats = getattr(self.vla, "norm_stats", None)
+        if stats and self.unnorm_key not in stats:
+            keys = list(stats.keys())
+            if len(keys) == 1:
+                self.unnorm_key = keys[0]
 
     def reset(self, instruction: str) -> None:
         """Store the instruction for prompt construction (OpenVLA is stateless per step)."""

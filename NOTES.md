@@ -19,8 +19,9 @@ Convention: one bullet per gotcha, lead with the symptom, then the fix.
 - **OpenVLA env:** `torch==2.2.0`, `transformers==4.40.1`, `tokenizers==0.19.1`,
   `timm==0.9.10`. **Newer transformers silently breaks** the remote `predict_action`
   code path (load error or wrong output). Own venv.
-- **VLA-JEPA env:** modern LeRobot + Qwen3-VL-2B + V-JEPA2 stack. Conflicts with OpenVLA's
-  old transformers. The research repo uses conda env `VLA_JEPA`, Python 3.10. Own venv.
+- **VLA-JEPA env:** StarVLA + Qwen3-VL-2B + V-JEPA2 stack. Conflicts with OpenVLA's
+  old transformers. The public repo uses conda env `VLA_JEPA`, Python 3.10, and serves the
+  policy through `deployment/model_server/server_policy.py`. Own venv/image.
 - Corollary: **do not assume both policies import in one process.** The harness isolates
   them (separate runs, or subprocess); the parquet schema is the only thing they share.
 
@@ -49,27 +50,34 @@ Convention: one bullet per gotcha, lead with the symptom, then the fix.
   enough — `set_init_state(init_state)` selects the object layout. This quadruple is the
   `episode_id` and the qualified-rollout unit.
 - **Settle before policy control:** ~10 steps of zero action after `set_init_state` to let
-  objects fall into place; cap episodes at the suite step budget (~220 short / ~520 long),
-  not LIBERO's default horizon of 1000.
+  objects fall into place; cap episodes at the suite step budget (`spatial=250`, `object=280`,
+  `goal=300`, `long=520`), not LIBERO's default horizon of 1000.
 
 ## Policies
 
-- **OpenVLA `unnorm_key` is a silent trap.** Wrong key → flailing-but-plausible actions,
-  not a crash. Per LIBERO suite it is `<suite>_no_noops` (e.g. `libero_goal_no_noops`);
-  BridgeV2 is `bridge_orig`. Confirm the key list in the checkpoint's `norm_stats`.
+- **OpenVLA `unnorm_key` for the LIBERO fine-tunes is the SUITE name, not `<suite>_no_noops`.**
+  VERIFIED on Modal: `openvla-7b-finetuned-libero-spatial`'s norm_stats has the single key
+  `'libero_spatial'` — passing `'libero_spatial_no_noops'` (the training-dataset name) raises
+  `AssertionError: ... please choose from dict_keys(['libero_spatial'])`. So it's a HARD crash
+  here (the base OXE model's wrong-key case is the silent-flailing trap; BridgeV2 base is
+  `bridge_orig`). Our policy now falls back to the sole norm_stats key when the guess is absent.
 - **Gripper sign/convention can be inverted** between a policy's output and the env's
   expected command (VLA-JEPA binarizes at `gripper_threshold=0.5`). Mismatch → never grasps
   or never releases. Verify on a known-good demo.
 - **`flash_attention_2` is unavailable on Apple Silicon/CPU** (the likely dev machine →
   darwin/MPS). Use `attn_implementation='sdpa'`/`'eager'` + float32; expect single-episode
   smoke throughput, not full-suite runs.
-- **VLA-JEPA chunking:** `chunk_size=7`, `n_action_steps=7`; `select_action` buffers a
-  chunk and re-plans only on boundaries. **`reset()` between episodes** clears the buffer —
+- **VLA-JEPA chunking:** the HF LIBERO config has `future_action_window_size=6`, so the
+  server returns 7 normalized actions per request. The harness caches that chunk locally and
+  re-plans only on chunk boundaries. **`reset()` between episodes** clears the local chunk —
   skip it and a new episode replays the previous chunk.
-- **VLA-JEPA load path is honest-uncertain:** the exact LeRobot policy *class symbol* was
-  not verified verbatim. Load via `from_pretrained(policy.path)` / the policy factory, do
-  NOT hard-import a guessed class name. And do not confuse **VLA-JEPA** (arXiv 2602.10098,
-  ginwind) with the unrelated **JEPA-VLA** (arXiv 2602.11832).
+- **VLA-JEPA load path is StarVLA WebSocket, not LeRobot.** The official LIBERO eval starts
+  `deployment/model_server/server_policy.py --ckpt_path .../LIBERO/checkpoints/VLA-JEPA-LIBERO.pt`
+  and the sim talks to it with `WebsocketClientPolicy`. The stats key is `franka`; the HF
+  config must be patched to point `framework.qwenvl.base_vlm` and `framework.vj2_model.base_encoder`
+  at local Qwen3-VL/V-JEPA2 snapshots, and `flash_attention_2` can be changed to `sdpa` for
+  a tractable Modal build. Do not confuse **VLA-JEPA** (arXiv 2602.10098, ginwind) with the
+  unrelated **JEPA-VLA** (arXiv 2602.11832).
 
 ## Ingest
 
@@ -92,15 +100,15 @@ Convention: one bullet per gotcha, lead with the symptom, then the fix.
 - **DROID is heavy:** TF + tensorflow_datasets + GCS, f64 tensors. Use the `droid_100`
   subset (~2GB, identical schema) for smoke tests; `.numpy()` + cast f64→f32.
 
-## Daft-native ingest — DROID & LeRobot are landing IN Daft (reshapes our adapter strategy)
+## Daft-native ingest — DROID & LeRobot are in Daft (reshapes our adapter strategy)
 
-As of 2026-06-11 there are two open **draft** PRs adding first-party dataset readers to Daft
-itself — i.e. the "ingest DROID/LeRobot" half of our wedge, done by the library. This turns
-our ingest layer from "hand-roll three readers" into "delegate two to Daft, own the third
-(HDF5) + the entire rollout side." On-message for the GTM story: *Daft already ingests your
-robot data.*
+As of 2026-07-01, Daft PRs #7090 and #7089 are **merged**. Our pinned `daft==0.7.15`
+still lacks `daft.datasets.{lerobot,droid}`, so the harness keeps temporary vendored copies
+that no-op once the Daft pin is bumped. This turns our ingest layer from "hand-roll three
+readers" into "delegate two to Daft, own HDF5 + raw-DROID trajectory parsing + rollout."
+On-message for the GTM story: *Daft already ingests your robot data.*
 
-- **LeRobot — Daft PR #7090 `daft.datasets.lerobot`** (draft, @srilman). `read()` returns a
+- **LeRobot — Daft PR #7090 `daft.datasets.lerobot`** (merged, @srilman). `read()` returns a
   **one-row-per-FRAME** DataFrame with episode metadata broadcast across frames — the SAME
   shape as our `ROLLOUT_SCHEMA`, just native LeRobot column names (`episode_index`,
   `frame_index`, `timestamp`, `observation.state`, `action`, `task`, `videos/{key}/...`).
@@ -109,7 +117,7 @@ robot data.*
   `s3://` / `hf://`. **GAP: v3.0 ONLY** (raises otherwise) — VLA-JEPA consumes v2.1, so the
   v2.1 path still needs the lerobot lib. Implication: `ingest/lerobot.py` should DELEGATE to
   this, not re-implement — it becomes a column projection onto `ROLLOUT_SCHEMA`.
-- **DROID — Daft PR #7089 `daft.datasets.droid`** (draft, @srilman). `raw()` reads the RAW
+- **DROID — Daft PR #7089 `daft.datasets.droid`** (merged, @srilman). `raw()` reads the RAW
   DROID release (`gs://gresearch/robotics/droid_raw`), **one row per EPISODE**: unnested
   metadata (`uuid`, `success`, `current_task`, camera serials, `trajectory_length`, ...) +
   lazy file refs (`trajectory` → the per-episode `trajectory.h5`, `wrist_video` /
@@ -121,9 +129,8 @@ robot data.*
   angle).
 - **HDF5 — no Daft PR.** Uncontested; ours to build. And the raw-DROID `trajectory.h5` is
   itself HDF5, so the h5-reading machinery does double duty.
-- Both PRs are **DRAFT** — don't hard-pin against them (our pinned `daft==0.7.15` does not yet
-  ship `daft.datasets.{lerobot,droid}`). Track #7089 / #7090; intended surface is
-  `daft.datasets.{lerobot,droid}`.
+- Our pinned `daft==0.7.15` does not yet ship these modules. Track the first Daft release
+  containing #7089/#7090, bump the pin, then delete `harness/_vendor/daft_datasets`.
 
 **Our parsers (implemented 2026-06-11, h5py-based, TF-free):** robomimic/LIBERO HDF5 and
 raw-DROID `trajectory.h5`, both projecting onto the canonical `ROLLOUT_SCHEMA` via
@@ -138,8 +145,8 @@ sign (`gripper_state = qpos[:,0]-qpos[:,1]`) is suite-dependent — verify on a 
 so slip/grasp detection isn't inverted.
 
 **Vendored Daft readers (temporary):** LeRobot & DROID ingest now call Daft's own readers
-(PRs #7090/#7089), vendored verbatim in `harness/_vendor/daft_datasets` because they're
-unmerged — our pinned `daft==0.7.15` lacks `daft.datasets.{lerobot,droid}` but has every
+(PRs #7090/#7089), vendored in `harness/_vendor/daft_datasets` because our pinned
+`daft==0.7.15` lacks `daft.datasets.{lerobot,droid}` but has every
 internal API they use, so they run as-is. `harness._vendor.daft_datasets.install()`
 monkey-patches them onto `daft.datasets` and no-ops once a real Daft ships them. DELETE the
 vendor package + the two `install()` call sites when the PRs land. Gotcha: Daft's glob returns
@@ -149,11 +156,11 @@ vendor package + the two `install()` call sites when the PRs land. Gotcha: Daft'
 `write_parquet`-straight-from-Daft path is parked in BACKLOG.
 
 **Policies (implemented, GPU-deferred):** OpenVLA + VLA-JEPA adapters carry the real load +
-predict logic behind a lazy heavy-import (torch/transformers/lerobot/PIL never import at module
-load). They're unit-tested with INJECTED fake backends (`_vla`/`_processor`, `_policy`); real-
-weight inference needs the GPU env (Modal), not a CPU box. VLA-JEPA chunking lives INSIDE the
-LeRobot policy (`select_action` buffers a chunk; `reset()` clears it) — the adapter just
-forwards, so `reset()` between episodes is mandatory or a new episode replays the old chunk.
+predict logic behind lazy heavy imports / clients (torch/transformers/PIL/VLA-JEPA checkout never
+import at module load). They're unit-tested with INJECTED fake backends (`_vla`/`_processor`,
+WebSocket `_client`); real-weight inference needs the GPU env (Modal), not a CPU box. VLA-JEPA
+chunking is handled by the adapter: one server call returns a 7-action chunk, `act()` yields one
+unnormalized LIBERO action at a time, and `reset()` clears the cached chunk between episodes.
 
 ## Rollout / Modal
 
@@ -199,6 +206,11 @@ forwards, so `reset()` between episodes is mandatory or a new episode replays th
       and torch 2.2.0 is compiled for numpy 1.x → `Failed to initialize NumPy: _ARRAY_API not
       found`. Fix: pin **`numpy<2`** in the daft layer. (This is why OpenVLA's "unpinned numpy"
       doesn't transfer — adding Daft changes the resolution.)
+    - **`--no-deps` LIBERO drops runtime deps the ENV needs.** The CPU smoke imported only
+      `libero.libero.benchmark` (clean), but constructing the env imports `libero.libero.envs`,
+      whose `env_wrapper.py` does `import matplotlib.cm` → ModuleNotFound (matplotlib was in
+      LIBERO's dropped requirements). Fix: add `matplotlib` + `einops` to the sim pins. Lesson:
+      the import-only smoke under-tests; only a real env construction (GPU) catches these.
     - **Watch the other loose pins pip resolved** (still unpinned): gym→**0.26.2** (not 0.25.2),
       bddl→**3.6.0** (not 1.0.1). robosuite's `step` is its own 4-tuple so the gym-0.26 5-tuple
       change shouldn't reach us, but gym.spaces / bddl 3.x API drift could bite at task
@@ -212,15 +224,15 @@ forwards, so `reset()` between episodes is mandatory or a new episode replays th
     - **numpy left unpinned** to match OpenVLA's working recipe — PIN the resolved version here
       once the build succeeds (reproducibility), and watch for the np.float/np.bool removal if
       robosuite 1.4.1 still uses them under numpy≥1.24.
-- **VLA-JEPA single-image is the still-open coexistence case (DEFERRED on Modal):** on py3.10
-  `pip install lerobot` resolves **lerobot==0.4.4** (0.5.x needs Python≥3.12), which pulls
-  **`evdev`** — a C extension that fails to build without Linux kernel headers (`linux/input.h`
-  missing); fix is `apt_install("linux-libc-dev")` (or the `evdev-binary` wheel). Worse, it's
-  unverified whether `policy.type='vla_jepa'` is even registered in 0.4.4. And **Modal builds
-  EVERY image referenced by an `@app.function` in the app**, so a broken `vla_jepa_image` blocks
-  the OpenVLA build too. So the VLA-JEPA Modal functions are removed for now (`vla_jepa_image`
-  kept as a documented TODO, unreferenced → not built); resolve the exact lerobot version against
-  github.com/ginwind/VLA-JEPA before re-adding them.
+- **VLA-JEPA Modal is split into its own app:** `harness/rollout/modal_vla_jepa_app.py` builds
+  the official `ginwind/VLA-JEPA` StarVLA server stack separately from OpenVLA. This avoids the
+  Modal gotcha where one app's broken/heavy image can block an unrelated OpenVLA run. The function
+  downloads the HF `ginwind/VLA-JEPA` snapshot plus `Qwen/Qwen3-VL-2B-Instruct` and
+  `facebook/vjepa2-vitl-fpc64-256`, patches `LIBERO/config.{json,yaml}` to local cache paths and
+  `attn_implementation: sdpa`, starts `deployment/model_server/server_policy.py` as a subprocess,
+  then runs the standard Daft rollout UDF against `127.0.0.1:10093`. Still deploy-unverified:
+  the first real run must validate the StarVLA requirements build, SDPA compatibility, and server
+  throughput on A100.
 - **Rollout = a `@daft.cls` UDF.** One row per episode spec `(suite, task_id, init_state_id,
   seed)`; the UDF runs one episode via `run_episode`, streams per-step rows to a `RolloutWriter`
   (one parquet part + frames + mp4 per episode on the OUTPUT Volume), returns an episode summary

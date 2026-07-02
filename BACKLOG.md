@@ -25,13 +25,13 @@ These are decided. Do not scaffold them; do not let them grow in June.
 
 Ordered roughly by how cleanly they'd extend the existing contracts.
 
-- **Contribute the `trajectory.h5` parser to Daft's DROID PR (#7089).** `daft.datasets.droid.raw()`
+- **Contribute the `trajectory.h5` parser to Daft's DROID reader.** `daft.datasets.droid.raw()`
   hands you a `daft.File` to each episode's `trajectory.h5` but leaves parsing actions/proprio
   as an explicit upstream TODO — exactly our HDF5 wheelhouse. A Daft expression that reads it
   fills the gap AND is distribution gold (a merged PR to Eventual's own repo = credibility with
   the exact ICP). Distribution-flavored; revisit once our HDF5 path works.
-- **LeRobot v2.1 reader.** Daft PR #7090 is v3.0-only; v2.1 (what VLA-JEPA consumes) still needs
-  the lerobot lib. Out unless a deliverable forces it.
+- **LeRobot v2.1 reader.** Daft's LeRobot reader from PR #7090 is v3.0-only; v2.1 still needs
+  a separate path if a deliverable needs training-format conversion.
 
 - **Automatic failure labeling beyond re-grasp.** The schema already has slots for the full
   `TERMINAL_FAILURE_LABELS` vocabulary (no_grasp, drop_no_recover, wrong_object,

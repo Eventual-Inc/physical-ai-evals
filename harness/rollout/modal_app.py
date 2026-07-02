@@ -8,13 +8,14 @@ Run::
     modal run harness/rollout/modal_app.py --policy-type openvla --suites libero_goal --episodes 5
     modal run harness/rollout/modal_app.py --policy-type openvla --download-only
 
+For VLA-JEPA, use ``harness/rollout/modal_vla_jepa_app.py``. It is split out so its
+heavier StarVLA image does not block OpenVLA deploys.
+
 ⚠️  NOT YET DEPLOY-VERIFIED. The container image below is the #1 open question (see NOTES.md):
 LIBERO (robosuite 1.4 / numpy 1.22.4, historically Python 3.8) must co-exist IN ONE IMAGE with
-a VLA policy stack (OpenVLA: torch 2.2 / transformers 4.40; VLA-JEPA: modern lerobot) for the
-in-process closed loop. Modern LIBERO forks run on 3.10/3.11 (OpenPI does), so we build on 3.11
-— but the exact numpy/torch pin compatibility must be validated on the first deploy. If they
-cannot coexist, fall back to the OpenPI policy-server / env-client SPLIT (websocket between two
-images). The two policy stacks conflict with each other, so they get SEPARATE images.
+a VLA policy stack for the in-process closed loop. Modern LIBERO forks run on 3.10/3.11
+(OpenVLA does), so we build on 3.10. VLA-JEPA is intentionally handled by
+``modal_vla_jepa_app.py`` because its official path is a StarVLA WebSocket policy server.
 """
 
 from __future__ import annotations
@@ -58,9 +59,12 @@ _GL_APT = (
 # NOT used by `pip install -e LIBERO`), so pip resolves one numpy for torch 2.2 + robosuite 1.4.1.
 # opencv-python==4.9.0.80: robosuite pulls opencv unpinned -> 4.13 which declares numpy>=2 and
 # warns against our numpy 1.26.4; 4.9.0.80 is the last numpy-1-clean line (NOTES.md).
+# matplotlib + einops: LIBERO runtime deps that `--no-deps` drops but env construction needs
+# (env_wrapper imports matplotlib.cm; einops is used pervasively) — the smoke missed them because
+# it only imported libero.libero.benchmark, not libero.libero.envs (NOTES.md).
 _LIBERO_SIM_PINS = (
     "robosuite==1.4.1", "bddl", "easydict", "cloudpickle", "gym",
-    "imageio[ffmpeg]", "opencv-python==4.9.0.80",
+    "imageio[ffmpeg]", "opencv-python==4.9.0.80", "matplotlib", "einops",
 )
 _LIBERO_REPO = "https://github.com/Lifelong-Robot-Learning/LIBERO.git"
 _PY = "3.10"
@@ -124,17 +128,6 @@ def openvla_image() -> modal.Image:
     return _with_pipeline(_with_libero(base))
 
 
-def vla_jepa_image() -> modal.Image:
-    """LIBERO + VLA-JEPA's LeRobot stack. NOTE: the exact lerobot pin is UNVERIFIED — lerobot
-    0.5.x requires Python>=3.12 which clashes with robosuite-on-3.10, so VLA-JEPA likely needs the
-    older/forked lerobot its research repo pins. Resolve against github.com/ginwind/VLA-JEPA before
-    a real run (see NOTES.md); the structure below mirrors the openvla image."""
-    base = modal.Image.from_registry(CUDA_BASE, add_python=_PY).apt_install(*_GL_APT).pip_install(
-        "torch", "lerobot",  # TODO: pin to the VLA-JEPA repo's lerobot version (py3.10-compatible)
-    )
-    return _with_pipeline(_with_libero(base))
-
-
 def _fn_kwargs(image: modal.Image, *, gpu: str | None = None, cpu: float = 8, memory: int = 32768,
                timeout: int = 7200) -> dict:
     kwargs: dict = {
@@ -149,13 +142,6 @@ def _fn_kwargs(image: modal.Image, *, gpu: str | None = None, cpu: float = 8, me
 @app.function(**_fn_kwargs(openvla_image(), cpu=4))
 def download_openvla(model_id: str = "openvla/openvla-7b-finetuned-libero-spatial") -> dict:
     return _download(model_id)
-
-
-# NOTE: VLA-JEPA Modal functions are DEFERRED — `vla_jepa_image()` is unverified (lerobot pins
-# 0.4.4 on py3.10 and pulls evdev which needs kernel headers; the lerobot version where
-# `policy.type='vla_jepa'` is registered is still TBD, see NOTES.md). They're omitted so the app
-# only builds the OpenVLA image. Re-add `download_vla_jepa` / `run_sweep_vla_jepa` once the
-# VLA-JEPA env is pinned against github.com/ginwind/VLA-JEPA.
 
 
 @app.function(**_fn_kwargs(openvla_image(), cpu=2))
@@ -252,7 +238,10 @@ def modal_main(
     task_list = [int(t) for t in task_ids.split(",") if t.strip()] or None
 
     if policy_type != "openvla":
-        raise SystemExit(f"policy_type={policy_type!r} not yet wired on Modal (VLA-JEPA image deferred — see NOTES.md). Use --policy-type openvla.")
+        raise SystemExit(
+            f"policy_type={policy_type!r} is in harness/rollout/modal_vla_jepa_app.py. "
+            "Use this app for --policy-type openvla."
+        )
 
     if download_only:
         print(download_openvla.remote(model_id) if model_id else download_openvla.remote())
