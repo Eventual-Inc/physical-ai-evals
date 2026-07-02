@@ -1,9 +1,9 @@
-"""Daft-native ingest tests — LeRobot (#7090) and DROID (#7089) via the vendored readers.
+"""Daft-native ingest tests — LeRobot and DROID via ``daft.datasets``.
 
-Exercises the REAL vendored ``daft.datasets.{lerobot,droid}`` code (PRs #7090/#7089, vendored
-in ``harness._vendor`` until they land) against synthetic fixtures, then asserts our adapters
-normalize their output onto the canonical ``ROLLOUT_SCHEMA``. No network/GPU; the LeRobot
-fixture has no video features so no MP4 decode is needed.
+Exercises Daft's native ``daft.datasets.{lerobot,droid}`` readers (nightly Daft; PyPI from the
+release after 0.7.16) against synthetic fixtures, then asserts our adapters normalize their
+output onto the canonical ``ROLLOUT_SCHEMA``. No network/GPU; the LeRobot fixture has no video
+features so no MP4 decode is needed.
 """
 
 from __future__ import annotations
@@ -68,15 +68,13 @@ def _write_droid_dir(root, episodes):
             rs.create_dataset("joint_positions", data=np.zeros((T, 7), np.float64))
 
 
-# ----------------------------------------------------------------------- vendor shim
+# ------------------------------------------------------------------ native daft.datasets
 
-def test_vendor_install_idempotent():
-    from harness._vendor.daft_datasets import install
-    install()
+def test_daft_ships_native_readers():
     import daft.datasets
+
     assert hasattr(daft.datasets.lerobot, "read")
     assert hasattr(daft.datasets.droid, "raw")
-    assert install() == []  # second call no-ops (prefers anything already registered)
 
 
 # --------------------------------------------------------------------------- LeRobot

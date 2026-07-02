@@ -144,15 +144,17 @@ the notebook MUST read `control_mode` before any cross-source action comparison.
 sign (`gripper_state = qpos[:,0]-qpos[:,1]`) is suite-dependent — verify on a known-good demo
 so slip/grasp detection isn't inverted.
 
-**Vendored Daft readers (temporary):** LeRobot & DROID ingest now call Daft's own readers
-(PRs #7090/#7089), vendored in `harness/_vendor/daft_datasets` because our pinned
-`daft==0.7.15` lacks `daft.datasets.{lerobot,droid}` but has every
-internal API they use, so they run as-is. `harness._vendor.daft_datasets.install()`
-monkey-patches them onto `daft.datasets` and no-ops once a real Daft ships them. DELETE the
-vendor package + the two `install()` call sites when the PRs land. Gotcha: Daft's glob returns
-`file://` URIs for local paths — h5py needs a plain path, so DROID strips the scheme
-(`_local_path`). LeRobot `read()` returns frame-level native columns; we normalize through
-`Episode` (guaranteed schema parity) instead of projecting in-Daft — the lazy/at-scale
+**Daft-native readers (vendor shim DELETED 2026-07-02):** LeRobot & DROID ingest call Daft's
+own `daft.datasets.{lerobot,droid}` directly. History: while the readers were unmerged we
+vendored them (`harness/_vendor/daft_datasets`, see git history); Daft 0.7.16 released
+`datasets.droid`/`VideoFile.frames()`/`read_mcap`, and **nightly** carries
+`datasets.lerobot` + `Hdf5File` until the next release — dev installs:
+`pip install daft --pre --extra-index-url https://nightly.daft.ai` (nightly also bumps
+pyarrow to 24.x; the schema round-trips fine — suite verified). Daft PR #7160 (DROID + HDF5
+API improvements) flows in via nightly as it merges. Gotcha that outlived the shim: Daft's
+glob returns `file://` URIs for local paths — h5py needs a plain path, so DROID strips the
+scheme (`_local_path`). LeRobot `read()` returns frame-level native columns; we normalize
+through `Episode` (guaranteed schema parity) instead of projecting in-Daft — the lazy/at-scale
 `write_parquet`-straight-from-Daft path is parked in BACKLOG.
 
 **Policies (implemented, GPU-deferred):** OpenVLA + VLA-JEPA adapters carry the real load +

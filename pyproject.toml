@@ -15,9 +15,11 @@ authors = [{ name = "Eventual" }]
 # Everything heavy (policies, sim, dataset readers) is an OPTIONAL extra so the harness
 # imports and the smoke test run on a plain CPU box / CI without GPU stacks.
 dependencies = [
-  "pyarrow>=15,<19",   # the schema IS a pyarrow schema; <19 keeps arrow types stable across Daft
-  "numpy>=1.24,<2.0",  # 2.0 churns dtypes; <2.0 also matches what older robot stacks expect
-  "daft==0.7.15",      # PIN: 0.7.11 was YANKED on PyPI; 0.7.15 (2026-06-07) is known-good
+  "pyarrow>=15",       # the schema IS a pyarrow schema; nightly daft needs modern pyarrow (24.x)
+  "numpy>=1.24,<2.0",  # 2.0 churns dtypes; the VLA-JEPA Modal image (lerobot) runs numpy 2 separately
+  # Floor = latest PyPI release. daft.datasets.{lerobot} + Hdf5File are nightly-only until the
+  # next release — dev installs use:  pip install daft --pre --extra-index-url https://nightly.daft.ai
+  "daft>=0.7.16",
   "scikit-learn>=1.4", # KMeans/HDBSCAN for the failure-mode clustering (Daft has NO built-in)
   "imageio[ffmpeg]>=2.34",  # mp4 rollout video capture (imageio.mimwrite)
 ]

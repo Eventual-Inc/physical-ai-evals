@@ -1,6 +1,6 @@
 """DROID adapter — parses the raw per-episode ``trajectory.h5`` (the (b) fork).
 
-CONCRETE (implemented), TensorFlow-free. Daft PR #7089 ``daft.datasets.droid.raw()``
+CONCRETE (implemented), TensorFlow-free. Daft-native ``daft.datasets.droid.raw()``
 discovers DROID episodes and hands back a ``daft.File`` to each ``trajectory.h5`` plus the
 MP4 camera ``VideoFile``s and unnested episode metadata — but it does NOT parse the
 numeric trajectory (actions/proprio). That parse is ours, and ``trajectory.h5`` is HDF5,
@@ -141,10 +141,10 @@ def _read_droid_meta(episode_dir: str) -> dict:
 
 
 class DroidIngestor(Ingestor):
-    """Adapter for raw DROID: discovery + metadata via ``daft.datasets.droid.raw()`` (PR #7089,
-    vendored until it lands), numeric trajectory parsed by ``parse_trajectory_h5`` (the (b)
-    fork). Daft does the episode discovery and metadata parse; we parse the per-episode
-    ``trajectory.h5`` it points at.
+    """Adapter for raw DROID: discovery + metadata via the native ``daft.datasets.droid.raw()``
+    (Daft >=0.7.16), numeric trajectory
+    parsed by ``parse_trajectory_h5`` (the (b) fork). Daft does the episode discovery and
+    metadata parse; we parse the per-episode ``trajectory.h5`` it points at.
     """
 
     source = "droid"
@@ -169,8 +169,6 @@ class DroidIngestor(Ingestor):
         yield from gen(path, limit=limit, state_includes_joints=state_includes_joints)
 
     def _load_via_daft(self, path, *, limit, state_includes_joints):
-        from harness._vendor.daft_datasets import install
-        install()
         import daft.datasets
 
         cols = ["uuid", "success", "current_task", "trajectory_length", "episode_dir"]

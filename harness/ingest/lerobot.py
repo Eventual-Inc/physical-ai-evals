@@ -1,11 +1,10 @@
-"""LeRobot dataset adapter — delegates to the Daft-native reader (PR #7090).
+"""LeRobot dataset adapter — delegates to the Daft-native reader.
 
-STRATEGY (2026-06, see NOTES.md): we do NOT hand-roll a LeRobot reader. We call
-``daft.datasets.lerobot.read()`` (Daft PR #7090, currently vendored via
-``harness._vendor.daft_datasets`` until it lands in a Daft release) which returns a
-one-row-per-FRAME DataFrame in native LeRobot column names, then NORMALIZE it onto the
-common ``Episode``/``Step`` model so it projects through ``Episode.to_step_rows`` onto the
-canonical ``ROLLOUT_SCHEMA`` — exactly like every other source. Going through Episode (vs a
+STRATEGY (see NOTES.md): we do NOT hand-roll a LeRobot reader. We call
+``daft.datasets.lerobot.read()`` (native in nightly Daft; PyPI from the release after 0.7.16)
+which returns a one-row-per-FRAME DataFrame in native LeRobot column names, then NORMALIZE it
+onto the common ``Episode``/``Step`` model so it projects through ``Episode.to_step_rows`` onto
+the canonical ``ROLLOUT_SCHEMA`` — exactly like every other source. Going through Episode (vs a
 direct in-Daft projection) GUARANTEES schema parity; the lazy/at-scale projection that writes
 parquet straight from Daft is parked in BACKLOG.
 
@@ -46,8 +45,6 @@ class LeRobotIngestor(Ingestor):
         on ``task_index``. ``success`` is unknown for raw LeRobot data, so it's set False /
         ``terminal_failure='unlabeled'`` for the notebook's labeling pass.
         """
-        from harness._vendor.daft_datasets import install
-        install()  # register vendored lerobot/droid onto daft.datasets if Daft lacks them
         import daft.datasets
 
         frames = daft.datasets.lerobot.read(path, load_video_frames=False).to_pydict()
