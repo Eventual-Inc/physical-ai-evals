@@ -1,184 +1,153 @@
 # vla_jepa_harness
 
-**You can get a VLA's success rate; you can't easily answer _why_ it fails.** This harness
-turns thousands of LIBERO rollouts into a queryable [Daft](https://www.daft.ai)
-DataFrame so you can _cluster failure modes_ — the re-grasp loops, the dropped objects,
-the wrong-object grabs — instead of scrubbing videos and hand-rolling scripts.
+**Reproducing a VLA evaluation is broken.** Every model ships a bespoke, brittle eval stack;
+every benchmark has its own environment hell; and when you finally get it running you get one
+number. **You can get a success rate; you can't easily answer _why_ your VLA fails.**
 
-Ingest **DROID / LeRobot / HDF5 / ALOHA / EgoDex / ABC** or run **your own policy** in LIBERO → one parquet
-schema → mine the failures in Daft.
+This repo makes *"run VLA-JEPA and OpenVLA on LIBERO, on your own GPU, end to end — and see
+why it fails"* a solved, repeatable thing:
 
-> Deliverable **1 of 3** for the Eventual VLA content project (harness · notebook · blog).
-> The headline comparison is **VLA-JEPA vs OpenVLA on LIBERO**, and the hero result is
-> **automatic re-grasp detection** (see [`notebooks/`](notebooks/README.md)).
+1. **Reproduce** — both policies run **in-process** on Modal GPUs against the canonical LIBERO
+   protocol (50 trials/task, seed 7 — the OpenVLA-origin constants that openpi, starVLA, and
+   allenai/vla-eval all inherit; see [docs/EVAL_PATTERNS.md](docs/EVAL_PATTERNS.md)). Every
+   dependency landmine we hit is logged in [NOTES.md](NOTES.md).
+2. **Understand** — every rollout streams to a canonical **one-row-per-step parquet schema**
+   ([`harness/schema.py`](harness/schema.py)), so "success rate dropped" decomposes into
+   *policy* failures (re-grasp loops, drops) vs *harness* failures (bad unnorm ⇒ saturated
+   actions; bad init state; preprocessing drift) with a Daft query instead of scrubbing video.
+3. **Generalize** — the same `Episode`/`Step` representation ingests
+   **DROID · LeRobot · HDF5 · ALOHA · EgoDex · ABC**, so your demonstration data and your
+   eval rollouts land in one queryable frame.
 
----
-
-## Status
-
-The full harness is implemented and tested on CPU. OpenVLA has a Modal app with a
-CPU image smoke path; full GPU rollouts still need deploy verification. VLA-JEPA uses
-its own Modal app because the official StarVLA policy-server image is much heavier.
-
-| Real (implemented + tested) | Not yet runnable here |
-|---|---|
-| `harness/schema.py` — rollout parquet schema | `harness/rollout/{rollout_udf,modal_app}.py` — OpenVLA Modal sweep (GPU rollout deploy-unverified) |
-| `harness/ingest/*` — HDF5, raw-DROID, LeRobot, ALOHA, EgoDex & ABC ✅ | `harness/ingest/lerobot.py::_load_v21` — LeRobot v2.1 fallback (stub) |
-| `harness/policies/{openvla,vla_jepa}.py` — VLA adapters ✅ (fake-backend/client tested) | `harness/rollout/modal_vla_jepa_app.py` — VLA-JEPA Modal sweep (heavy image, deploy-unverified) |
-| `harness/rollout/{libero_runner,policy}.py` + `writer.py` incl. `RolloutWriter` ✅ (fake env/policy tested) | |
-| `harness/config.py` · `cli.py` | |
-| `tests/` — schema · hdf5/droid · daft-ingest · extra datasets · policies · rollout ✅ | |
-
-Ingest reads HDF5/ALOHA/EgoDex/ABC ourselves and delegates LeRobot/DROID to Daft's own readers (PRs #7090/#7089,
-temporarily vendored in `harness/_vendor` until our pinned Daft release ships them — see NOTES.md). The policy adapters
-and the LIBERO rollout loop + `RolloutWriter` are implemented; the closed loop is tested against
-a fake env/policy producing real `ROLLOUT_SCHEMA` parquet. The Modal sweep (`rollout_udf` wraps
-the loop as a `@daft.cls` UDF; the Modal app owns the image/volumes/entrypoint) follows the
-daft-examples conventions. Real-weight inference needs the GPU env.
+**The stack is deliberately opinionated:** Python end to end — [Daft](https://daft.ai) as the
+data plane (datasets → DataFrames in, parquet out), Modal for GPU placement, PyTorch policies
+**in-process** (no policy server, no WebSocket — the container boundary and `@daft.cls` worker
+replace them), MuJoCo/robosuite for sim. Where the tech-agnostic route
+(allenai/vla-evaluation-harness) buys generality with a mandatory network boundary and
+per-benchmark Docker, this buys reproducibility with one process you can read top to bottom.
 
 ## Quickstart
 
 ```bash
-pip install -e ".[dev]"        # core deps only (pyarrow, numpy, daft, sklearn, imageio)
-pytest                          # the schema round-trips through parquet
+pip install -e ".[dev]"
+# daft.datasets.lerobot + Hdf5File are on Daft nightly until the next release:
+pip install daft --pre --extra-index-url https://nightly.daft.ai
+pytest                          # 39 tests, CPU-only, no weights/sim needed
 
-harness rollout --policy openvla --suite libero_goal --episodes 10 --dry-run
+harness rollout --policy vla_jepa --suite libero_spatial --task-ids 0 --episodes 2 --dry-run
 harness ingest  --source hdf5 --input demos/libero_goal.hdf5 --out data/rollouts --dry-run
 ```
 
-`--dry-run` prints the resolved plan without importing any heavy policy/sim stack. Drop it
-to actually run once the relevant extra/server environment is installed.
+`--dry-run` prints the resolved plan without importing any heavy policy/sim stack.
 
-Heavy stacks are **optional extras** and several are **mutually incompatible** — install
-each in its own environment (see [NOTES.md](NOTES.md)):
+The two policy stacks are mutually incompatible and each gets its **own environment/image**
+(see [NOTES.md](NOTES.md)):
 
 ```bash
-pip install -e ".[openvla]"        # transformers==4.40.1 — its own venv
-pip install -e ".[vla_jepa]"       # lightweight VLA-JEPA WebSocket client deps
-pip install -e ".[libero]"         # robosuite==1.4.0 — needs Python 3.8, its own conda env
-pip install -e ".[ingest_hdf5]"    # h5py    (or ingest_lerobot / ingest_droid)
-pip install -e ".[ingest_aloha]"   # h5py    (or ingest_egodex / ingest_abc)
+pip install -e ".[openvla]"        # transformers==4.40.1 / py3.10 stack
+pip install -e ".[vla_jepa]"       # lerobot@pinned-SHA (Qwen3-VL / transformers 5.x, py>=3.12)
+pip install -e ".[ingest_hdf5]"    # h5py (also: ingest_aloha / ingest_egodex / ingest_abc)
 pip install -e ".[embed]"          # sentence-transformers for the clustering pass
 ```
 
-## Using Real ABC Data
+## Running rollouts on Modal
 
-ABC publishes its data tooling separately at <https://abc.bot/> / `amazon-far/abc`,
-and the Hugging Face tree can be queried before you download anything:
+Rollouts run as a `@daft.cls` UDF on Modal GPUs — one episode spec per row, per-step
+trajectories written to a parquet glob. Two apps because the two policy images can't share
+an environment (OpenVLA: py3.10/transformers 4.40; VLA-JEPA: py3.12/lerobot):
+
+```bash
+pip install -e ".[modal]"
+
+# OpenVLA (image verified: builds + LIBERO imports green)
+modal run harness/rollout/modal_app.py --policy-type openvla --suites libero_spatial --task-ids 0 --episodes 2
+
+# VLA-JEPA — in-process via the lerobot port + lerobot/VLA-JEPA-LIBERO checkpoint.
+# No policy server: lerobot[vla_jepa,libero] puts the policy AND the sim in one process
+# (hf-libero ships LIBERO's bddl/assets in the wheel — no git clone, no config patching).
+modal run harness/rollout/modal_vla_jepa_app.py --smoke-test
+modal run harness/rollout/modal_vla_jepa_app.py --download-only
+modal run harness/rollout/modal_vla_jepa_app.py --suites libero_spatial --task-ids 0 --episodes 2
+```
+
+## Reading the output in Daft
+
+One row per step, one part file per episode, one glob:
+
+```python
+import daft
+df = daft.read_parquet("data/rollouts/*.parquet")
+failures = df.where(df["success"] == False)        # the wedge: only the failures
+failures.groupby("terminal_failure").count().show()
+```
+
+[`notebooks/regrasp_demo.py`](notebooks/regrasp_demo.py) runs the whole failure-forensics
+loop on synthetic rollouts (no GPU): Daft glob → re-grasp detector over the per-step
+gripper/object signal → the annotated grasp→lift→drop→re-grasp trajectory plot.
+
+## Ingesting datasets
+
+Six sources normalize onto the same `Episode`/`Step` waist and emit the identical schema —
+`daft.datasets.{lerobot,droid}` do the reading where Daft is native, our adapters do the rest:
+
+```bash
+harness ingest --source lerobot --input org/dataset-name --out data/rollouts
+harness ingest --source droid   --input /path/to/droid_raw --out data/rollouts
+harness ingest --source aloha   --input demos/aloha_task   --out data/rollouts
+```
+
+### ABC (abc.bot)
+
+ABC publishes tooling at `amazon-far/abc`; query the gated HF tree before downloading:
 
 ```bash
 harness abc-query --split train --contains bottles --limit 10
-harness abc-query --split train --task organize_the_condiment_bottles --limit 5
-harness abc-query --split train \
-  --task organize_the_condiment_bottles \
-  --episode episode_000fced0-d49c-49c7-8615-debb589a97ec
 ```
 
-Use ABC's downloader/converter only after you have picked a small subset. The ABC
-training-format episode directory is exactly what `harness ingest --source abc` expects:
-
-```
-episode_<uuid>/
-  states_actions.bin
-  combined_camera-images-rgb.mp4
-  episode_metadata.json
-```
-
-Minimal preview path:
-
-```bash
-git clone https://github.com/amazon-far/abc.git
-cd abc
-curl -LsSf https://astral.sh/uv/install.sh | sh   # if uv is not installed
-uv python pin 3.12
-uv sync
-uv run prepare.py                                # preview data, about 130MB
-```
-
-That creates an ABC cache, by default `abc/cache/`, with folders like
-`train_real/episode_<uuid>/...` and `val_real/...`. From this repo:
+Use ABC's downloader/converter for a small subset, then ingest the exported episodes
+(`episode_<uuid>/{states_actions.bin, combined_camera-images-rgb.mp4, episode_metadata.json}`):
 
 ```bash
 pip install -e ".[dev,ingest_abc]"
 harness ingest --source abc --input /path/to/abc/cache --out data/rollouts
 ```
 
-For the gated full ABC-130K MCAP data, accept access on Hugging Face and use ABC's
-converter, then ingest the converted output:
-
-```bash
-export HF_TOKEN=...
-cd /path/to/abc
-uv run export_hf_task.py --task organize_the_condiment_bottles --split train --max-episodes 1
-
-cd /path/to/vla_jepa_harness
-harness ingest --source abc --input /path/to/abc/cache/train_real --out data/rollouts
-```
-
-## Running rollouts on Modal
-
-Rollouts run on Modal GPUs as a `@daft.cls` UDF — one episode spec per row, the per-step
-trajectory written to a parquet glob the notebook reads. Follows the daft-examples
-`models/<name>/modal_app.py` convention (shared `daft-model-cache` / `daft-model-outputs`
-Volumes, `hf-token` Secret). OpenVLA and VLA-JEPA use separate Modal apps so the StarVLA
-image does not block OpenVLA deploys.
-
-```bash
-pip install -e ".[modal]"
-modal run harness/rollout/modal_app.py --policy-type openvla  --download-only
-modal run harness/rollout/modal_app.py --policy-type openvla  --suites libero_goal --episodes 5
-modal run harness/rollout/modal_vla_jepa_app.py --download-only
-modal run harness/rollout/modal_vla_jepa_app.py --suites libero_goal --episodes 5
-```
-
-## Reading the output in Daft
-
-The harness writes a directory of parquet part files (one per episode), **one row per
-step**, that Daft reads as a glob:
-
-```python
-import daft
-df = daft.read_parquet("data/rollouts/*.parquet")
-failures = df.where(df["success"] == False)       # the wedge: only the failures
-failures.groupby("terminal_failure").count().show()
-```
-
 ## Repo map
 
 ```
 harness/
-  schema.py            CONCRETE  rollout parquet schema (one row per step)
-  config.py            CONCRETE  RolloutConfig / IngestConfig / EmbedConfig
-  writer.py            real      write_rows/write_episode + RolloutWriter (streaming capture)
-  cli.py               real      `harness rollout` / `harness ingest`
-  _modal.py            real      modal-free deploy infra (paths, HF cache, weight resolution)
+  schema.py            the rollout parquet schema (one row per step) — the contract
+  config.py            RolloutConfig / IngestConfig / EmbedConfig (canonical protocol defaults)
+  writer.py            write_rows/write_episode + RolloutWriter (streaming capture)
+  cli.py               harness rollout / ingest / abc-query
+  _modal.py            modal-free deploy infra (paths, HF cache, weight resolution)
   ingest/
-    base.py            CONCRETE  Episode / Step / Ingestor + to_step_rows()
-    hdf5.py            real      robomimic/LIBERO HDF5 -> Episode
-    droid.py           real      raw-DROID via daft.datasets.droid.raw() + trajectory.h5
-    lerobot.py         real      LeRobot v3 via daft.datasets.lerobot.read() (v2.1 = stub)
-    aloha.py           real      ALOHA / Mobile ALOHA HDF5 -> Episode
-    egodex.py          real      EgoDex HDF5 annotations + MP4 path -> Episode
-    abc.py             real      ABC exported states_actions.bin episodes (abc.bot) -> Episode
+    base.py            Episode / Step / Ingestor + to_step_rows()
+    lerobot.py         LeRobot v3 via daft.datasets.lerobot.read()
+    droid.py           raw DROID via daft.datasets.droid.raw() + our trajectory.h5 parser
+    hdf5.py            robomimic/LIBERO HDF5
+    aloha.py           ALOHA / Mobile ALOHA HDF5 (robot-native joint actions)
+    egodex.py          EgoDex HDF5 annotations + MP4 paths (human egocentric)
+    abc.py             ABC exported episodes  ·  abc_query.py: HF metadata queries
   rollout/
-    policy.py          CONCRETE  Policy ABC (reset / act) + Observation
-    libero_runner.py   real      make_env / run_episode / run_sweep (OpenPI-faithful)
-    rollout_udf.py     real*     @daft.cls LIBERO rollout UDF (*deploy-unverified: GPU+sim)
-    modal_app.py       real*     OpenVLA Modal deployment shell
-    modal_vla_jepa_app.py real*  VLA-JEPA Modal shell + policy-server subprocess
+    policy.py          Policy ABC (reset / act) — the seam every backend implements
+    libero_runner.py   make_env / run_episode / run_sweep (protocol-faithful closed loop)
+    rollout_udf.py     @daft.cls LIBERO rollout UDF (one episode-spec row -> one episode)
+    modal_app.py       OpenVLA Modal app (image verified)
+    modal_vla_jepa_app.py  VLA-JEPA Modal app — in-process lerobot, no server (GPU-unverified)
   policies/
-    openvla.py         real      OpenVLA baseline (lazy load; GPU for real inference)
-    vla_jepa.py        real      VLA-JEPA headliner via official WebSocket policy server
-  _vendor/             TEMP      vendored Daft #7090/#7089 readers — delete after Daft pin bump
-tests/*.py             real      schema · hdf5/droid · daft-ingest · extra datasets · policies · rollout
-notebooks/README.md    outline   comparative failure-mode notebook (deliverable 2)
-NOTES.md               the reproducibility-gotchas log (feeds the blog, deliverable 3)
+    openvla.py         OpenVLA in-process via HF predict_action (suite-name unnorm_key)
+    vla_jepa.py        VLA-JEPA in-process via the lerobot port + hub checkpoint
+docs/EVAL_PATTERNS.md  the VLA evaluation grammar: 9 components, model x benchmark matrix, lexicon
+notebooks/             regrasp_demo.py (failure forensics on synthetic data) + notebook outline
+NOTES.md               the reproducibility-gotchas log — every landmine, with fixes
 BACKLOG.md             explicitly-not-shipping list + idea parking lot
+tests/                 39 CPU-only tests: schema · ingest (all six) · policies · rollout loop
 ```
 
 ## The three deliverables
 
 1. **Harness** (this repo) — reproducible rollouts → parquet.
-2. **Notebook** — comparative failure-mode analysis (VLA-JEPA vs OpenVLA), re-grasp
-   detection as the screenshot. Outline: [`notebooks/README.md`](notebooks/README.md).
+2. **Notebook** — comparative failure-mode analysis (VLA-JEPA vs OpenVLA), re-grasp detection
+   as the hero. Outline: [`notebooks/README.md`](notebooks/README.md).
 3. **Blog post + social** — including the reproducibility story from [NOTES.md](NOTES.md).

@@ -56,11 +56,12 @@ openvla = [
 # --- VLA-JEPA headliner. The public repo uses StarVLA + a WebSocket policy server,
 #     not LeRobot's PreTrainedPolicy factory. Install github.com/ginwind/VLA-JEPA
 #     separately for the model server; this extra covers the lightweight client-side deps.
+# --- VLA-JEPA runs IN-PROCESS via the lerobot port (policies/vla_jepa merged on lerobot main
+#     2026-06; pinned at a git SHA until the next lerobot release). Requires Python >=3.12 and
+#     pulls the Qwen3-VL / transformers 5.4-5.6 stack -> its OWN env/image, separate from
+#     OpenVLA's 4.40.1 (see NOTES.md and harness/rollout/modal_vla_jepa_app.py). ---
 vla_jepa = [
-  "websockets>=12",
-  "msgpack>=1.0",
-  "msgpack-numpy>=0.4.8",
-  "pillow>=10.0",
+  "lerobot[vla_jepa] @ git+https://github.com/huggingface/lerobot@052d329470ea8d5c98a4b4bd1f6c18abd0ac7c34",
 ]
 # --- dataset ingest. Strategy (NOTES.md): DROID/LeRobot delegate to Daft-native readers
 #     (PRs #7089/#7090); we OWN HDF5. NO TensorFlow anywhere — Daft has none either, and we
