@@ -5,6 +5,13 @@ is not housekeeping: **the blog's reproducibility story comes straight from here
 of these fail *silently* (success rate quietly drops to ~0; no exception), which is
 exactly the pain the harness exists to surface — so every entry is a future paragraph.
 
+Friction is captured in three layers:
+1. **[`docs/FRICTION_POINTS.md`](docs/FRICTION_POINTS.md)** — the condensed field guide:
+   18 landmines, symptom → fix, grouped by when they bite. Start here.
+2. **[`docs/FRICTION_LOG.md`](docs/FRICTION_LOG.md)** — the chronological record: everything
+   we hit, in order, with commits as receipts.
+3. **This file** — the deep per-topic detail behind both.
+
 Convention: one bullet per gotcha, lead with the symptom, then the fix.
 
 ## Environments — you need FOUR, and several are mutually exclusive

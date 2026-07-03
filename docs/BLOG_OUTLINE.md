@@ -94,10 +94,11 @@ The notebook (notebooks/failure_modes.py) on the real sweep:
 - The behavioral features are 5 lines of pandas over 3 schema columns — cheap on purpose;
   thresholds read off the data (holding >4 mm vs air <2 mm histogram).
 
-## 5. Field guide: 16 landmines between you and a reproducible VLA eval (~500 words)
+## 5. Field guide: 18 landmines between you and a reproducible VLA eval (~500 words)
 
-The NOTES.md log, grouped — one line each + the fix. This section IS the reproducibility story
-the contract promised, and it's skimmable link-bait for practitioners:
+The condensed table now lives at `docs/FRICTION_POINTS.md` (symptom → fix, grouped by when it
+bites); the chronological story is `docs/FRICTION_LOG.md`. This section IS the reproducibility
+story the contract promised, and it's skimmable link-bait for practitioners:
 
 - **Env & build:** LIBERO's "dependency conflict" is a myth (its setup.py installs nothing);
   CUDA runtime bases ship no compiler/cmake (evdev, egl_probe); LIBERO's `input()` prompt
