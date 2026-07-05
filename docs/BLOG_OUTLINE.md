@@ -94,7 +94,7 @@ The notebook (notebooks/failure_modes.py) on the real sweep:
 - The behavioral features are 5 lines of pandas over 3 schema columns — cheap on purpose;
   thresholds read off the data (holding >4 mm vs air <2 mm histogram).
 
-## 5. Field guide: 18 landmines between you and a reproducible VLA eval (~500 words)
+## 5. Field guide: 19 landmines between you and a reproducible VLA eval (~500 words)
 
 The condensed table now lives at `docs/FRICTION_POINTS.md` (symptom → fix, grouped by when it
 bites); the chronological story is `docs/FRICTION_LOG.md`. This section IS the reproducibility
@@ -153,3 +153,56 @@ gets the §1 story specifically (his issue IS this post).
 - [ ] Before/after table (0/7 @250-cap → 10/10 @~80 steps)
 - [ ] Nine-components grammar table (from EVAL_PATTERNS, simplified)
 - [ ] 16-landmines card
+
+---
+
+# Post 2 — "The dependency hell was so famous, even the AI believed it"
+
+The second post, born from a real event: an AI agent auditing this repo asserted the VLA
+dependency-hell lore as fact ("the stacks can never live in a pip-installable package…
+LIBERO needs Python 3.8"), then read the receipts — NOTES.md, the verified images, the
+one-resolver-pass pip spec — and **retracted, in writing**. The retraction itself is the
+content. Receipts strong enough to flip a skeptic that was trained on the lore.
+
+**Working titles:**
+1. *The dependency hell was so famous, even the AI believed it*
+2. *You don't need three conda envs to eval a VLA*
+3. *An AI read our repo and retracted the LIBERO myth*
+
+**The arc (~900 words):**
+1. **The lore** — "LIBERO needs Python 3.8; numpy 1.22.4; keep sim in its own conda env;
+   VLA eval = three environments minimum." Quoted everywhere, including (verbatim) by an AI
+   agent reviewing this repo. We believed it too — our own June NOTES carried a
+   "you need FOUR environments" section.
+2. **The receipt** — LIBERO's `setup.py` is `install_requires=[]`. The scary pins are its
+   *training* requirements, never installed for rollouts. The verified images: sim + policy +
+   Daft in ONE resolver pass — OpenVLA stack (torch 2.2 / transformers 4.40.1 / robosuite
+   1.4.1 / mujoco 3.9.0 / numpy 1.26.4) and the even cleaner VLA-JEPA path
+   (`lerobot[vla_jepa,libero] @ SHA` — the hf-libero wheel ships LIBERO's code + bddl +
+   assets; no clone, no config patch, no PYTHONPATH, no policy server). **One Python (3.12)
+   across the repo.**
+3. **The retraction** — quote the agent's correction directly ("What I got wrong vs. the
+   kernel that's true…"). The kernel: the only real fragmentation left is
+   **per-policy-checkpoint** — frozen checkpoints freeze transformers pins (4.40.1 vs
+   5.4–5.6), so *policies* need separate images from each other. It was never sim-vs-policy,
+   never the Python version. Dependency hell is an artifact of checkpoint freezing, not of
+   robotics.
+4. **The moral** — two audiences read your repo now: researchers and their agents. Stale
+   claims don't just confuse people, they get *asserted as fact* by the models reading on
+   their behalf (our own stale pyproject comment — "dedicated 3.8 conda env" — survived two
+   weeks past its falsification and did exactly that). Keep the receipts consistent;
+   they're load-bearing.
+5. **CTA** — the pip spec + `modal run` lines ARE the proof; run them.
+
+**Assets:** the agent's correction (quoted, anonymized as "an AI agent reviewing the repo");
+the before/after pyproject `libero` extra; the one-pip-layer image spec from
+`modal_vla_jepa_app.py`; the NOTES "Environments — ONE Python, TWO images, and the 3.8 myth"
+section.
+
+**Relationship to Post 1:** Post 1 = the forensics story (0% → one query → 84.7%). Post 2 =
+the environment-myth story. Independent reads, same repo, same thesis: receipts over lore.
+Post 2 can run first (lighter, spicier hook) or second (Post 1's §5 tees it up).
+
+**Channel notes:** the X version leads with the agent quote screenshot — "an AI reviewed our
+repo and issued a correction" is the scroll-stopper. LeRobot Discord angle: hf-libero as the
+unsung hero (the wheel that killed the conda env).
