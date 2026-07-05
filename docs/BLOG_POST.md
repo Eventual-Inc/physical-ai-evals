@@ -1,12 +1,60 @@
-# Our VLA scored 0% and the model was innocent
+# Operational reproducibility: benchmarking modern VLAs in one Python environment
 
-*Reproducing a VLA eval end-to-end — OpenVLA vs VLA-JEPA on LIBERO, on rented GPUs — and
-finding the bug with one DataFrame query instead of an afternoon of scrubbing video.*
+*Running VLA-JEPA and OpenVLA on LIBERO, on rented GPUs, in one modern Python stack — and
+finding the bugs with DataFrame queries instead of afternoons of scrubbing video.*
 
-<!-- FIGURES: hero trace + failure-mix bar are baked in notebooks/failure_modes.ipynb;
+<!-- Title alternates (author's pick): "Our VLA scored 0% and the model was innocent" ·
+     "You don't need three conda envs to eval a VLA"
+     FIGURES: hero trace + failure-mix bar are baked in notebooks/failure_modes.ipynb;
      the gripper-query terminal shot is reproducible from the parquet. -->
 
 ---
+
+Python's promise is that it can act as a high-level interface across many performance stacks:
+distributed computing, neural network training, simulation, visualization, robotics, and more.
+In practice, Python packaging often becomes one of the biggest sources of friction, especially
+for developers working inside narrow research ecosystems.
+
+This problem is particularly visible in academic AI and robotics repositories. Implementations
+of new papers, model architectures, and benchmarks frequently ship with strict dependency
+pins, outdated libraries, and fragile environment assumptions. Those choices may make sense at
+publication time, but they often create unnecessary complexity for anyone trying to integrate
+the work into a broader system. Industry practitioners do not usually have the luxury of
+treating each paper repository as its own isolated world. They need coherent stacks that can
+be deployed, scaled, tested, and maintained.
+
+I spent several weekends investigating whether the dependency constraints around VLA, JEPA,
+LIBERO, MuJoCo, and robosuite were genuinely necessary, or whether they were mostly artifacts
+of how the original research code was packaged. My conclusion is that much of the pain is
+avoidable. I was able to run VLA and JEPA models on LIBERO, with MuJoCo and robosuite, inside
+a single modern Python environment using current tooling and dependencies. The same
+environment also scales cleanly on Modal.
+
+That matters because the reproducibility problem in AI is not only about random seeds, missing
+checkpoints, or insufficient documentation. It is also about developer workflow. When research
+code depends on brittle, outdated, or mutually incompatible environments, it becomes harder to
+compare methods, extend baselines, reproduce benchmarks, and transition promising work into
+real systems.
+
+Modern AI models are now strong enough to assist with refactoring, debugging, dependency
+upgrades, and regression comparison. Given that, it is increasingly difficult to justify
+publishing repositories that rely on unnecessarily strict, stale dependency pins without
+providing a maintainable path forward. Researchers should still preserve exact environments
+for archival reproducibility, but that should not preclude offering a modern, integrated
+environment for actual development.
+
+I created this repository to make it easier to run benchmarks on new robotics models.
+Vision-language-action models, world models, and action-conditioned models are being explored
+across robotic manipulation, humanoids, autonomous vehicles, and other physical AI systems.
+The goal of this project is to give researchers and practitioners a coherent toolset for
+evaluating these systems without inheriting the full fragmentation cost of the current Python
+packaging ecosystem.
+
+What follows is the receipt: what the consolidation actually took, what it found, and why
+"one environment" is only half the story — because once the environment is honest, the data
+it produces can tell you things a success rate never will.
+
+## The receipt: our VLA scored 0% and the model was innocent
 
 OpenVLA's published number on LIBERO-Spatial is 84.7%.
 
@@ -167,6 +215,13 @@ The notebook doesn't care where the parquet came from. The same schema ingests D
 robomimic HDF5, ALOHA, EgoDex, and ABC — so if you've got demonstrations or rollouts in any of
 those, the failure forensics run on *your* data with a path change. If you try it, we genuinely
 want to hear what breaks: the landmine log grows by contribution.
+
+The longer-term goal is to add more models, more simulation environments, and more benchmark
+suites so that the robotics community can iterate faster. Strong tooling will not solve the
+hard parts of physical AI by itself, but it can remove a large amount of unnecessary drag.
+Teams should be spending their engineering effort on the self-improvement loop, hardware
+constraints, control design, evaluation quality, and deployment — not on rebuilding
+incompatible Python environments for every paper they want to test.
 
 We're Eventual, we build [Daft](https://daft.ai), and we're building data tooling for physical
 AI. If success rates are hiding your failures too — come find us.

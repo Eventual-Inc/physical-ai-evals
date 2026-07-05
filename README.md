@@ -1,11 +1,28 @@
 # vla_jepa_harness
 
-**Reproducing a VLA evaluation is broken.** Every model ships a bespoke, brittle eval stack;
-every benchmark has its own environment hell; and when you finally get it running you get one
-number. **You can get a success rate; you can't easily answer _why_ your VLA fails.**
+This repository provides a modern, unified Python environment for running robotics model
+benchmarks across VLA, JEPA, LIBERO, MuJoCo, and robosuite.
 
-This repo makes *"run VLA-JEPA and OpenVLA on LIBERO, on your own GPU, end to end — and see
-why it fails"* a solved, repeatable thing:
+Many academic robotics repositories ship with strict dependency pins and isolated environment
+assumptions. Those constraints often make it difficult to reproduce results, compare models,
+or integrate research code into production-grade systems. After testing the dependency
+requirements across several fragmented implementations, we found that many of these
+constraints were not fundamental. They could be resolved with standard engineering practices,
+modern Python tooling, and careful compatibility fixes.
+
+The purpose of this project is to reduce that friction. It gives physical AI researchers and
+industry practitioners a coherent starting point for benchmarking new models without needing
+to reconstruct a fragile environment for every paper or baseline. The repository includes the
+compatibility work, bug fixes, and workflow templates needed to run these systems in a single
+environment that can also scale on [Modal](https://modal.com).
+
+The aim is not only reproducibility, but **operational reproducibility**: the ability to run,
+modify, compare, scale, and extend research systems in a way that matches how real engineering
+teams work.
+
+**And one number is not enough.** You can get a success rate; you can't easily answer _why_
+your VLA fails. This repo makes *"run VLA-JEPA and OpenVLA on LIBERO, on your own GPU, end to
+end — and see why it fails"* a solved, repeatable thing:
 
 1. **Reproduce** — both policies run **in-process** on Modal GPUs against the canonical LIBERO
    protocol (50 trials/task, seed 7 — the OpenVLA-origin constants that openpi, starVLA, and
