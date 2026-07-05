@@ -89,6 +89,17 @@ Convention: **[where it bit]** symptom → root cause → fix.
     flipped from fail-at-cap to success — cached-env contamination degrades outcomes well
     before it hard-crashes. (n=1; GPU nondeterminism not fully excluded.) *(noted in NOTES)*
 
+## 2026-07-03 — the Python-3.12 unification
+
+21. **[image rebuild]** `TypeError: mj_fullM(): incompatible function arguments` at env
+    stepping — NOT the interpreter bump: `mujoco` was unpinned, the June image happened to
+    resolve 3.9.0 (verified), and today's rebuild drifted to a newer mujoco whose `mj_fullM`
+    binding signature robosuite 1.4.x cannot call. Any rebuild on any Python would have hit
+    this. → Pin `mujoco==3.9.0` (the sweep-verified version). The SAME rebuild also drifted
+    scipy to 1.18 (requires numpy>=2, vs our 1.26.4 pin) → pin `scipy==1.15.3` too. Lesson: an
+    unpinned transitive dep makes "the same image" a function of the build date — pin the
+    whole verified resolve set around anything numpy-adjacent.
+
 ## Standing lessons
 
 - **Loud failures are the cheap ones.** Everything in the build section cost minutes.

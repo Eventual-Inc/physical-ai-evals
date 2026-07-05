@@ -1,6 +1,6 @@
 # Friction points — the condensed field guide
 
-**18 landmines between you and a reproducible VLA eval.** Symptom → fix, grouped by when it
+**19 landmines between you and a reproducible VLA eval.** Symptom → fix, grouped by when it
 bites. This is the quick-reference layer; the chronological story is
 [`FRICTION_LOG.md`](FRICTION_LOG.md) and the deep per-topic detail is
 [`../NOTES.md`](../NOTES.md).
@@ -36,7 +36,8 @@ bites. This is the quick-reference layer; the chronological story is
 | 15 | `ValueError: executing action in terminated episode` mid-sweep | `env.reset()` **every** episode: `set_init_state` alone leaves robosuite's step counter running *across* episodes; ~cumulative step 1000 the env poisons itself. Invisible in short runs — and it degrades outcomes *before* it crashes |
 | 16 | `torch.from_numpy`: "negative strides are not supported" | The 180° de-rotation is a reversed **view** — `np.ascontiguousarray` first |
 | 17 | A 500-step episode in a 250-cap suite | `episode_id` names the episode *spec* (identical across policies by design) — group by `(policy_type, episode_id)` or you chimera trajectories |
-| 18 | Detached Modal sweep dies when the laptop does | `modal run -d` survives network drops, **not** client teardown → `modal deploy` + `Function.spawn()`, and make sweeps resumable (part filename = deterministic episode id) |
+| 18 | `mj_fullM()` TypeError / scipy-vs-numpy conflict after a rebuild | Unpinned transitives drift with the build date (mujoco>=3.10 breaks robosuite 1.4.x bindings; scipy>=1.18 wants numpy>=2) → pin the sweep-verified set: `mujoco==3.9.0`, `scipy==1.15.3` |
+| 19 | Detached Modal sweep dies when the laptop does | `modal run -d` survives network drops, **not** client teardown → `modal deploy` + `Function.spawn()`, and make sweeps resumable (part filename = deterministic episode id) |
 
 ---
 

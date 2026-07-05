@@ -1,8 +1,8 @@
 """Modal deployment for VLA-JEPA LIBERO rollouts — in-process via the lerobot port.
 
-Separate from ``modal_app.py`` on purpose: the two policy stacks want different images
-(OpenVLA = py3.10 / transformers 4.40; VLA-JEPA = py3.12 / transformers 5.4–5.6 via lerobot),
-and Modal builds every image an app references.
+Separate from ``modal_app.py`` on purpose: the two policy stacks want different images —
+same Python (3.12) but conflicting transformers pins (OpenVLA ==4.40.1; VLA-JEPA's lerobot
+stack 5.4–5.6) — and Modal builds every image an app references.
 
 No policy server. ``lerobot[vla_jepa,libero]`` gives us everything in ONE process:
   * the VLA-JEPA policy (``lerobot.policies.vla_jepa``, main-only until the next release —
@@ -34,7 +34,7 @@ from harness._modal import (
 GPU_TYPE = "A100-40GB"
 MODAL_REGION = ["us-west"]
 CUDA_BASE = "nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04"
-_PY = "3.12"  # lerobot requires >=3.12 (vs the OpenVLA image's 3.10)
+_PY = "3.12"  # one Python across the repo: both GPU images run 3.12 (lerobot requires >=3.12)
 
 #: lerobot main SHA carrying the vla_jepa policy (merged 2026-06-04; includes the 2026-06-29
 #: GPU-roundtrip fix — the only two vla_jepa commits). Swap for a PyPI pin at the next release.

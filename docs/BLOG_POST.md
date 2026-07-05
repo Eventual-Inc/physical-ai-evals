@@ -123,7 +123,7 @@ That's the actionable difference between 99% and 84%: not "be better," but *this
 objects on the regrasp and can't recover*. That's a data-curation target and a fine-tuning
 target, not a shrug.
 
-## The field guide: 18 landmines, so you don't step on them
+## The field guide: 19 landmines, so you don't step on them
 
 We logged every failure we hit getting this running cleanly — because getting it running
 cleanly was the point. The full log is
