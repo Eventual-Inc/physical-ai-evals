@@ -102,7 +102,7 @@ VLA evaluation fails this way:
 
 We mapped the eval stacks of openpi, starVLA, OpenVLA, LeRobot, and AllenAI's
 vla-evaluation-harness against each other (the full grammar is in
-[`docs/EVAL_PATTERNS.md`](EVAL_PATTERNS.md)). Every one of them decomposes into the same nine
+[`docs/EVAL_PATTERNS.md`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/docs/EVAL_PATTERNS.md)). Every one of them decomposes into the same nine
 components — checkpoint, normalization stats, policy wrapper, serving split, env construction,
 chunk handling, success criterion, trials and seeds, recording. And the failure mode of the
 whole genre is the same: **plumbing errors masquerade as model quality.** One scalar out, no
@@ -158,11 +158,15 @@ cycles, measured finger separation, end-effector height — and the picture is o
 **OpenVLA fails 16× more often than VLA-JEPA (16% vs 1%) — and 15 of its 16 failures are the
 same failure: a re-grasp fumble loop.**
 
+![How each policy fails: failure rate by mode — OpenVLA's failures are dominated by re-grasp fumble loops](assets/failure-mix-comparison.png)
+
 The hero episode makes it visceral. "Pick up the black bowl next to the ramekin and place it
 on the plate": OpenVLA commands **23 grasp attempts** in one episode. The finger-separation
 trace shows the whole story — fingers snap shut to ~2mm (that's the width of *air*, not a
 bowl), open, reposition, snap shut on air again, twenty-some times until the clock runs out.
 We never watched the video to learn this. The trace *is* the video, minus the waiting.
+
+![OpenVLA commanding 23 grasp attempts in one failed episode — measured finger separation collapsing to ~2mm ('closed on air') over and over, with end-effector height overlaid](assets/regrasp-hero-trace.png)
 
 (VLA-JEPA's single failure across 100 episodes? Also a fumble loop. When strong policies fail,
 they apparently fail the same way — a hypothesis we now get to test on more suites.)
@@ -174,8 +178,10 @@ target, not a shrug.
 ## The field guide: 19 landmines, so you don't step on them
 
 We logged every failure we hit getting this running cleanly — because getting it running
-cleanly was the point. The full log is
-[`NOTES.md`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/NOTES.md); the highlights:
+cleanly was the point. The condensed field guide is
+[`FRICTION_POINTS.md`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/docs/FRICTION_POINTS.md) (symptom → fix), the
+chronological story is [`FRICTION_LOG.md`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/docs/FRICTION_LOG.md), and the
+deep detail is [`NOTES.md`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/NOTES.md). The highlights:
 
 **Environment and build.** LIBERO's famous "dependency conflict" is a myth — its `setup.py`
 installs nothing; the scary `requirements.txt` is for training, not rollouts. CUDA runtime
@@ -222,6 +228,18 @@ hard parts of physical AI by itself, but it can remove a large amount of unneces
 Teams should be spending their engineering effort on the self-improvement loop, hardware
 constraints, control design, evaluation quality, and deployment — not on rebuilding
 incompatible Python environments for every paper they want to test.
+
+## A direct ask, if you do this work
+
+<!-- AUTHOR CTA DRAFT — edit channel/link to taste before publishing -->
+If you evaluate VLAs — or you've burned a weekend rebuilding someone's environment to run
+one — I want fifteen minutes of your candor. What broke? What does your eval record that
+ours doesn't? What would make you actually run this on your own data?
+
+Open an [issue](https://github.com/Eventual-Inc/VLA-JEPA/issues) with what broke or what's missing, or reach me directly —
+**[CHANNEL: email/X/Discord link]** — and I'll personally help you get your benchmark
+running. If this repo can genuinely remove drag for your lab, that's the whole point of
+having built it in the open.
 
 We're Eventual, we build [Daft](https://daft.ai), and we're building data tooling for physical
 AI. If success rates are hiding your failures too — come find us.

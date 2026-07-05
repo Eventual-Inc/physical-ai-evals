@@ -26,6 +26,8 @@ data/            # rollouts/, frames/, videos/  (parquet + png + mp4)
 *.hdf5
 # but DO keep tiny committed fixtures if we add them:
 !tests/fixtures/**/*.parquet
+# blog/publication assets are committed:
+!docs/assets/*.png
 
 # --- sim / training artifacts ---
 mujoco/
