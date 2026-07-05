@@ -7,7 +7,9 @@ name = "vla_jepa_harness"
 version = "0.1.0"
 description = "Reproducible VLA rollouts -> parquet for failure-mode mining with Daft (VLA-JEPA vs OpenVLA on LIBERO)."
 readme = "README.md"
-requires-python = ">=3.10"          # Daft needs >=3.10; LIBERO needs 3.8 in ITS OWN env (see NOTES.md)
+# Core runs on 3.10–3.13. The canonical interpreter everywhere (dev + both GPU images) is
+# 3.12; the vla_jepa extra REQUIRES >=3.12 (lerobot). The old "LIBERO needs 3.8" is a myth.
+requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Eventual" }]
 
@@ -29,17 +31,12 @@ dependencies = [
 embed = [
   "sentence-transformers>=3.0",  # text/image embeddings via daft.functions.ai.embed_*
 ]
-# --- LIBERO simulation rollouts. FRAGILE: these pins only co-install on Python 3.8.
-#     This extra is documented, not guaranteed to resolve in a 3.10+ env. See NOTES.md;
-#     the practical path is a dedicated 3.8 conda env for sim. ---
+# --- LIBERO simulation. The "needs Python 3.8" lore is a MYTH (LIBERO's setup.py installs
+#     nothing) — VERIFIED on Modal at Python 3.12 in both GPU images. The wheel path
+#     (hf-libero, linux) ships LIBERO's code + bddl/assets/init_states; the clone path with
+#     the verified pin set lives in harness/rollout/modal_app.py (the source of truth). ---
 libero = [
-  "robosuite==1.4.0",  # LIBERO is pinned to 1.4.0; 1.4.1/1.5 change obs keys + controller cfg
-  "bddl==1.0.1",
-  "gym==0.25.2",       # OLD gym 4-tuple step API (NOT gymnasium's 5-tuple)
-  "easydict==1.9",
-  "robomimic==0.2.0",
-  # numpy MUST be ==1.22.4 with robosuite 1.4 (np.float/np.bool removed in >=1.24);
-  # this conflicts with the core numpy pin above -> install libero in a separate env.
+  "hf-libero>=0.1.4; sys_platform == 'linux'",
 ]
 # --- OpenVLA baseline. Its transformers pin is load-bearing and CONFLICTS with VLA-JEPA;
 #     run OpenVLA in its OWN venv. ---

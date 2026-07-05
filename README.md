@@ -40,11 +40,14 @@ harness ingest  --source hdf5 --input demos/libero_goal.hdf5 --out data/rollouts
 
 `--dry-run` prints the resolved plan without importing any heavy policy/sim stack.
 
-The two policy stacks are mutually incompatible and each gets its **own environment/image**
-(see [NOTES.md](NOTES.md)):
+**Python: one interpreter — 3.12 — everywhere** (core supports 3.10–3.13; the `vla_jepa`
+extra needs ≥3.12 because lerobot does). The two policy stacks still need **separate
+environments/images**, but the split is the *transformers pin* (OpenVLA ==4.40.1 vs
+VLA-JEPA's 5.4–5.6), never the Python version — the old "LIBERO needs Python 3.8" story is
+a myth we falsified on Modal (see [NOTES.md](NOTES.md)):
 
 ```bash
-pip install -e ".[openvla]"        # transformers==4.40.1 / py3.10 stack
+pip install -e ".[openvla]"        # transformers==4.40.1 stack (py3.12-verified)
 pip install -e ".[vla_jepa]"       # lerobot@pinned-SHA (Qwen3-VL / transformers 5.x, py>=3.12)
 pip install -e ".[ingest_hdf5]"    # h5py (also: ingest_aloha / ingest_egodex / ingest_abc)
 pip install -e ".[embed]"          # sentence-transformers for the clustering pass
@@ -53,8 +56,8 @@ pip install -e ".[embed]"          # sentence-transformers for the clustering pa
 ## Running rollouts on Modal
 
 Rollouts run as a `@daft.cls` UDF on Modal GPUs — one episode spec per row, per-step
-trajectories written to a parquet glob. Two apps because the two policy images can't share
-an environment (OpenVLA: py3.10/transformers 4.40; VLA-JEPA: py3.12/lerobot):
+trajectories written to a parquet glob. Two apps (both Python 3.12) because the transformers
+pins conflict (OpenVLA ==4.40.1; VLA-JEPA's lerobot stack 5.4–5.6):
 
 ```bash
 pip install -e ".[modal]"
