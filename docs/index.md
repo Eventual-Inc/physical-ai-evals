@@ -1,4 +1,4 @@
-# vla_jepa_harness
+# physical-ai-evals
 
 A modern, unified Python environment for running robotics model benchmarks across VLA, JEPA,
 LIBERO, MuJoCo, and robosuite — with **queryable failure forensics** over every rollout.
@@ -47,14 +47,14 @@ LIBERO-shaped benchmark: uv-managed, ruff-linted, ty-typechecked, CPU-testable (
 GPU or weights), CI + docs wired. Three seams:
 
 1. **Your policy** — subclass
-   [`Policy`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/harness/rollout/policy.py):
+   [`Policy`](https://github.com/Eventual-Inc/physical-ai-evals/blob/main/harness/rollout/policy.py):
    `reset(instruction)` + `act(obs) -> (7,) float32`. Both shipped policies are ~150-line
    adapters behind this seam; the runner, writer, schema, and Modal apps never change.
 2. **Your benchmark** — anything *LIBERO-shaped* fits
-   [`run_episode`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/harness/rollout/libero_runner.py):
+   [`run_episode`](https://github.com/Eventual-Inc/physical-ai-evals/blob/main/harness/rollout/libero_runner.py):
    (task × init-state × seed) episode specs, RGB (+ wrist + proprio) in, 7-DoF EEF deltas out.
 3. **Your data** — one
-   [`Ingestor`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/harness/ingest/base.py)
+   [`Ingestor`](https://github.com/Eventual-Inc/physical-ai-evals/blob/main/harness/ingest/base.py)
    producing `Episode`/`Step` lands your dataset in the same parquet schema as the rollouts —
    six adapters in-tree to copy from.
 
@@ -68,7 +68,7 @@ GPU or weights), CI + docs wired. Three seams:
   eval, symptom → fix.
 - **[Friction log](FRICTION_LOG.md)** — everything we hit, in the order we hit it, with
   commits as receipts.
-- **[The repo](https://github.com/Eventual-Inc/VLA-JEPA)** — code, tests, notebook, NOTES.
+- **[The repo](https://github.com/Eventual-Inc/physical-ai-evals)** — code, tests, notebook, NOTES.
 
 Built by [Eventual](https://eventual.ai) — the team behind [Daft](https://daft.ai) — as part
 of our physical-AI data tooling. Sibling project:

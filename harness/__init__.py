@@ -1,4 +1,7 @@
-"""vla_jepa_harness — reproducible VLA rollouts -> parquet for failure-mode mining.
+"""physical-ai-evals — reproducible VLA rollouts -> parquet for failure-mode mining.
+
+(Distribution: ``physical-ai-evals``; this import package is deliberately the name-neutral
+``harness`` so forks of the starter kit don't carry our branding — see pyproject.toml.)
 
 The wedge: a success rate is commodity; this turns thousands of rollouts into a
 queryable Daft DataFrame so you can answer *why* a VLA fails (failure-mode clustering),

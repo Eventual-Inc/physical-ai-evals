@@ -1,0 +1,40 @@
+name: Publish Package
+
+# Mirrors daft-physical-ai's publish flow: trusted publishing (no API tokens) via the
+# `pypi`/`testpypi` GitHub environments. One-time setup on pypi.org: create the
+# physical-ai-evals project's trusted publisher pointing at this repo + workflow.
+on:
+  push:
+    tags:
+    - v*
+
+  workflow_dispatch:
+    inputs:
+      test-pypi:
+        description: Publish to TestPyPI instead of PyPI
+        type: boolean
+        default: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.test-pypi && 'testpypi' || 'pypi' }}
+    permissions:
+      id-token: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - uses: astral-sh/setup-uv@v7
+    - name: Build wheel and sdist
+      run: uv build --sdist --wheel
+
+    - name: Publish to TestPyPI
+      if: github.event_name == 'workflow_dispatch' && inputs.test-pypi
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        repository-url: https://test.pypi.org/legacy/
+
+    - name: Publish to PyPI
+      if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.test-pypi)
+      uses: pypa/gh-action-pypi-publish@release/v1

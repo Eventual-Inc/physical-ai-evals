@@ -1,10 +1,10 @@
-site_name: vla_jepa_harness
+site_name: physical-ai-evals
 site_description: >-
-  A modern, unified Python environment for running robotics model benchmarks —
-  VLA policies on LIBERO with queryable failure forensics.
-site_url: https://eventual-inc.github.io/VLA-JEPA/
-repo_url: https://github.com/Eventual-Inc/VLA-JEPA
-repo_name: Eventual-Inc/VLA-JEPA
+  The starter kit for evaluating physical-AI policies on LIBERO-shaped benchmarks —
+  reproducible VLA rollouts with queryable failure forensics.
+site_url: https://eventual-inc.github.io/physical-ai-evals/
+repo_url: https://github.com/Eventual-Inc/physical-ai-evals
+repo_name: Eventual-Inc/physical-ai-evals
 edit_uri: edit/main/docs/
 
 theme:

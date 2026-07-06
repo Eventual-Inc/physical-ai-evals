@@ -1,4 +1,4 @@
-# vla_jepa_harness
+# physical-ai-evals
 
 This repository provides a modern, unified Python environment for running robotics model
 benchmarks across VLA, JEPA, LIBERO, MuJoCo, and robosuite.

@@ -102,7 +102,7 @@ VLA evaluation fails this way:
 
 We mapped the eval stacks of openpi, starVLA, OpenVLA, LeRobot, and AllenAI's
 vla-evaluation-harness against each other (the full grammar is in
-[`docs/EVAL_PATTERNS.md`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/docs/EVAL_PATTERNS.md)). Every one of them decomposes into the same nine
+[`docs/EVAL_PATTERNS.md`](https://github.com/Eventual-Inc/physical-ai-evals/blob/main/docs/EVAL_PATTERNS.md)). Every one of them decomposes into the same nine
 components — checkpoint, normalization stats, policy wrapper, serving split, env construction,
 chunk handling, success criterion, trials and seeds, recording. And the failure mode of the
 whole genre is the same: **plumbing errors masquerade as model quality.** One scalar out, no
@@ -179,9 +179,9 @@ target, not a shrug.
 
 We logged every failure we hit getting this running cleanly — because getting it running
 cleanly was the point. The condensed field guide is
-[`FRICTION_POINTS.md`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/docs/FRICTION_POINTS.md) (symptom → fix), the
-chronological story is [`FRICTION_LOG.md`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/docs/FRICTION_LOG.md), and the
-deep detail is [`NOTES.md`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/NOTES.md). The highlights:
+[`FRICTION_POINTS.md`](https://github.com/Eventual-Inc/physical-ai-evals/blob/main/docs/FRICTION_POINTS.md) (symptom → fix), the
+chronological story is [`FRICTION_LOG.md`](https://github.com/Eventual-Inc/physical-ai-evals/blob/main/docs/FRICTION_LOG.md), and the
+deep detail is [`NOTES.md`](https://github.com/Eventual-Inc/physical-ai-evals/blob/main/NOTES.md). The highlights:
 
 **Environment and build.** LIBERO's famous "dependency conflict" is a myth — its `setup.py`
 installs nothing; the scary `requirements.txt` is for training, not rollouts. CUDA runtime
@@ -236,7 +236,7 @@ If you evaluate VLAs — or you've burned a weekend rebuilding someone's environ
 one — I want fifteen minutes of your candor. What broke? What does your eval record that
 ours doesn't? What would make you actually run this on your own data?
 
-Open an [issue](https://github.com/Eventual-Inc/VLA-JEPA/issues) with what broke or what's missing, or reach me directly —
+Open an [issue](https://github.com/Eventual-Inc/physical-ai-evals/issues) with what broke or what's missing, or reach me directly —
 **[CHANNEL: email/X/Discord link]** — and I'll personally help you get your benchmark
 running. If this repo can genuinely remove drag for your lab, that's the whole point of
 having built it in the open.

@@ -3,9 +3,12 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vla_jepa_harness"
+# Distribution (PyPI): physical-ai-evals. The IMPORT package stays `harness` — a deliberate
+# dist≠import split (à la scikit-learn/sklearn): the template's core is name-neutral for
+# forks; the brand lives on the distribution. The `harness` console script matches.
+name = "physical-ai-evals"
 version = "0.1.0"
-description = "Reproducible VLA rollouts -> parquet for failure-mode mining with Daft (VLA-JEPA vs OpenVLA on LIBERO)."
+description = "Starter kit for evaluating physical-AI policies on LIBERO-shaped benchmarks — reproducible VLA rollouts -> queryable parquet failure forensics (VLA-JEPA vs OpenVLA shipped)."
 readme = "README.md"
 # Core runs on 3.10–3.13. The canonical interpreter everywhere (dev + both GPU images) is
 # 3.12; the vla_jepa extra REQUIRES >=3.12 (lerobot). The old "LIBERO needs 3.8" is a myth.
