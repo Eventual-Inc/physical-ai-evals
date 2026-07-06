@@ -8,14 +8,14 @@ Run::
     modal run harness/rollout/modal_app.py --policy-type openvla --suites libero_goal --episodes 5
     modal run harness/rollout/modal_app.py --policy-type openvla --download-only
 
-For VLA-JEPA, use ``harness/rollout/modal_vla_jepa_app.py``. It is split out so its
-heavier StarVLA image does not block OpenVLA deploys.
+For VLA-JEPA, use ``harness/rollout/modal_vla_jepa_app.py``.
 
-⚠️  NOT YET DEPLOY-VERIFIED. The container image below is the #1 open question (see NOTES.md):
-LIBERO (robosuite 1.4 / numpy 1.22.4, historically Python 3.8) must co-exist IN ONE IMAGE with
-a VLA policy stack for the in-process closed loop. Modern LIBERO forks run on 3.10/3.11
-(OpenVLA does), so we build on 3.10. VLA-JEPA is intentionally handled by
-``modal_vla_jepa_app.py`` because its official path is a StarVLA WebSocket policy server.
+DEPLOY-VERIFIED (2026-07): image builds, LIBERO imports + env constructs, OpenVLA inference
+runs, and the 100-episode libero_spatial sweep reproduced the published number (84/100 vs
+84.7%). **Everything here runs Python 3.12** — same interpreter as the VLA-JEPA app. The two
+apps are split ONLY because the transformers pins conflict (OpenVLA needs ==4.40.1; VLA-JEPA's
+lerobot stack needs 5.4–5.6) — the Python version was never the constraint (the "LIBERO needs
+py3.8" lore is a myth; see NOTES.md).
 """
 
 from __future__ import annotations
@@ -65,9 +65,16 @@ _GL_APT = (
 _LIBERO_SIM_PINS = (
     "robosuite==1.4.1", "bddl", "easydict", "cloudpickle", "gym",
     "imageio[ffmpeg]", "opencv-python==4.9.0.80", "matplotlib", "einops",
+    # mujoco + scipy MUST be pinned: unpinned rebuilds drift (mujoco>=3.10 breaks robosuite
+    # 1.4.x mj_fullM bindings; scipy>=1.18 requires numpy>=2 against our 1.26.4). These are
+    # the sweep-verified versions (NOTES.md / FRICTION_LOG #21).
+    "mujoco==3.9.0",
+    "scipy==1.15.3",
 )
 _LIBERO_REPO = "https://github.com/Lifelong-Robot-Learning/LIBERO.git"
-_PY = "3.10"
+# One Python across the repo: 3.12 (matches the VLA-JEPA app; every OpenVLA-stack pin —
+# torch 2.2 / tokenizers 0.19.1 / numpy 1.26.4 / robosuite 1.4.1 — ships cp312 wheels).
+_PY = "3.12"
 
 
 _LIBERO_CFG = "/opt/LIBERO/.libero_config"
@@ -198,7 +205,10 @@ def _enumerate_specs(suites: list[str], task_ids: list[int] | None, episodes: in
                 ):
                     skipped += 1
                     continue
-                s_col.append(suite); t_col.append(int(task_id)); i_col.append(init_state_id); seed_col.append(seed)
+                s_col.append(suite)
+                t_col.append(int(task_id))
+                i_col.append(init_state_id)
+                seed_col.append(seed)
     if skipped:
         print(f"[resume] skipping {skipped} episodes already on the volume")
     return s_col, t_col, i_col, seed_col

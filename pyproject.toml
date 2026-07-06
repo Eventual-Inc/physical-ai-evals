@@ -3,11 +3,16 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vla_jepa_harness"
+# Distribution (PyPI): physical-ai-evals. The IMPORT package stays `harness` — a deliberate
+# dist≠import split (à la scikit-learn/sklearn): the template's core is name-neutral for
+# forks; the brand lives on the distribution. The `harness` console script matches.
+name = "physical-ai-evals"
 version = "0.1.0"
-description = "Reproducible VLA rollouts -> parquet for failure-mode mining with Daft (VLA-JEPA vs OpenVLA on LIBERO)."
+description = "Starter kit for evaluating physical-AI policies on LIBERO-shaped benchmarks — reproducible VLA rollouts -> queryable parquet failure forensics (VLA-JEPA vs OpenVLA shipped)."
 readme = "README.md"
-requires-python = ">=3.10"          # Daft needs >=3.10; LIBERO needs 3.8 in ITS OWN env (see NOTES.md)
+# Core runs on 3.10–3.13. The canonical interpreter everywhere (dev + both GPU images) is
+# 3.12; the vla_jepa extra REQUIRES >=3.12 (lerobot). The old "LIBERO needs 3.8" is a myth.
+requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Eventual" }]
 
@@ -16,7 +21,9 @@ authors = [{ name = "Eventual" }]
 # imports and the smoke test run on a plain CPU box / CI without GPU stacks.
 dependencies = [
   "pyarrow>=15",       # the schema IS a pyarrow schema; nightly daft needs modern pyarrow (24.x)
-  "numpy>=1.24,<2.0",  # 2.0 churns dtypes; the VLA-JEPA Modal image (lerobot) runs numpy 2 separately
+  # numpy 1 AND 2 are both fine for the contract layer (the VLA-JEPA image runs numpy 2 in
+  # production). The <2.0 pin lives in the openvla extra where its reason lives (torch 2.2).
+  "numpy>=1.24",
   # Floor = latest PyPI release. daft.datasets.{lerobot} + Hdf5File are nightly-only until the
   # next release — dev installs use:  pip install daft --pre --extra-index-url https://nightly.daft.ai
   "daft>=0.7.16",
@@ -29,22 +36,18 @@ dependencies = [
 embed = [
   "sentence-transformers>=3.0",  # text/image embeddings via daft.functions.ai.embed_*
 ]
-# --- LIBERO simulation rollouts. FRAGILE: these pins only co-install on Python 3.8.
-#     This extra is documented, not guaranteed to resolve in a 3.10+ env. See NOTES.md;
-#     the practical path is a dedicated 3.8 conda env for sim. ---
+# --- LIBERO simulation. The "needs Python 3.8" lore is a MYTH (LIBERO's setup.py installs
+#     nothing) — VERIFIED on Modal at Python 3.12 in both GPU images. The wheel path
+#     (hf-libero, linux) ships LIBERO's code + bddl/assets/init_states; the clone path with
+#     the verified pin set lives in harness/rollout/modal_app.py (the source of truth). ---
 libero = [
-  "robosuite==1.4.0",  # LIBERO is pinned to 1.4.0; 1.4.1/1.5 change obs keys + controller cfg
-  "bddl==1.0.1",
-  "gym==0.25.2",       # OLD gym 4-tuple step API (NOT gymnasium's 5-tuple)
-  "easydict==1.9",
-  "robomimic==0.2.0",
-  # numpy MUST be ==1.22.4 with robosuite 1.4 (np.float/np.bool removed in >=1.24);
-  # this conflicts with the core numpy pin above -> install libero in a separate env.
+  "hf-libero>=0.1.4; sys_platform == 'linux'",
 ]
 # --- OpenVLA baseline. Its transformers pin is load-bearing and CONFLICTS with VLA-JEPA;
 #     run OpenVLA in its OWN venv. ---
 openvla = [
-  "torch==2.2.0",
+  "torch==2.2.0",          # no cp313 wheels -> [tool.uv] environments caps the lock at <3.13
+  "numpy>=1.24,<2.0",      # torch 2.2 is numpy-1.x-compiled (_ARRAY_API crash on 2.x)
   "transformers==4.40.1",  # NEWER transformers SILENTLY breaks remote predict_action
   "tokenizers==0.19.1",
   "timm==0.9.10",
@@ -60,9 +63,15 @@ openvla = [
 #     2026-06; pinned at a git SHA until the next lerobot release). Requires Python >=3.12 and
 #     pulls the Qwen3-VL / transformers 5.4-5.6 stack -> its OWN env/image, separate from
 #     OpenVLA's 4.40.1 (see NOTES.md and harness/rollout/modal_vla_jepa_app.py). ---
-vla_jepa = [
-  "lerobot[vla_jepa] @ git+https://github.com/huggingface/lerobot@052d329470ea8d5c98a4b4bd1f6c18abd0ac7c34",
-]
+#     DELIBERATELY EMPTY (a pointer, like ingest_abc): the real install path is the Modal
+#     image (harness/rollout/modal_vla_jepa_app.py — the source of truth for the pins). On a
+#     linux GPU box:  pip install "lerobot[vla_jepa] @ git+https://github.com/huggingface/lerobot@052d329470ea8d5c98a4b4bd1f6c18abd0ac7c34"
+#     Why not a real extra: lerobot is a GIT dep whose own marker-conditional torch pins make
+#     uv's universal lock unsatisfiable in every [tool.uv] conflicts shape we tried (uv
+#     0.11.21-0.11.26 report "no version of torch==2.2.0" in the openvla split; a plain-PyPI
+#     transitive torch resolves fine). An empty extra keeps `uv lock`/`uv run` working for
+#     the whole template — see FRICTION_LOG #22.
+vla_jepa = []
 # --- dataset ingest. Strategy (NOTES.md): DROID/LeRobot delegate to Daft-native readers
 #     (PRs #7089/#7090); we OWN HDF5. NO TensorFlow anywhere — Daft has none either, and we
 #     parse raw-DROID's per-episode trajectory.h5 with our own HDF5 reader, not RLDS/tfds.
@@ -80,8 +89,40 @@ dev = ["pytest>=8.0"]
 [project.scripts]
 harness = "harness.cli:main"   # `harness rollout ...` / `harness ingest ...`
 
+[tool.uv]
+# uv's lock covers the verified interpreter range (canonical = 3.12, pinned in
+# .python-version). Core still pip-installs fine on 3.13 (requires-python >=3.10); this only
+# scopes uv lock/sync, where openvla's torch 2.2.0 (no cp313 wheels, no sdist) would make
+# the universal resolution unsatisfiable.
+environments = ["python_version >= '3.10' and python_version < '3.13'"]
+
+[dependency-groups]
+# uv installs the `dev` group by default -> `uv run pytest` works in a fresh clone.
+# (The [dev] extra below stays for pip users; same content.)
+dev = ["pytest>=8.0"]
+
 [tool.setuptools.packages.find]
 include = ["harness*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["notebooks"]  # py:percent notebooks tolerate looser style
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]  # pytest.importorskip legitimately precedes imports
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+  "E501",  # long lines in docstrings/comments carry receipts; format handles code lines
+  "E712",  # `success == False` is a Daft expression idiom, not a bool comparison
+]
+
+[tool.ty.rules]
+# Heavy deps (libero/lerobot/transformers/robosuite/modal) are LAZY optional imports by
+# design -- absent from the dev env. Warn, don't fail; real typos still surface in review.
+unresolved-import = "warn"

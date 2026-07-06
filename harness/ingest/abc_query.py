@@ -102,12 +102,12 @@ def list_episode_files(
 
 
 def format_bytes(n: int) -> str:
-    units = ("B", "KB", "MB", "GB", "TB")
     value = float(n)
-    for unit in units:
-        if value < 1024 or unit == units[-1]:
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024:
             return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
         value /= 1024
+    return f"{value:.1f} TB"
 
 
 def token_from_env(token_env: str = "HF_TOKEN") -> str | None:

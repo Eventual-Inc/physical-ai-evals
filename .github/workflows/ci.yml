@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - name: ruff
+        run: uvx ruff check harness/ tests/
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"   # the repo's canonical interpreter (core supports 3.10-3.13)
+      - name: Install (core + hdf5 ingest + CPU torch + nightly daft)
+        run: |
+          uv venv --python 3.12
+          uv pip install -e ".[dev,ingest_hdf5]"
+          # daft.datasets.{lerobot,droid} ride nightly until the release after 0.7.16
+          uv pip install --prerelease=allow --extra-index-url https://nightly.daft.ai --upgrade daft
+          # CPU wheel keeps the policy-adapter tests real without a GPU
+          uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+      # ty runs here (not in lint) so numpy/daft/torch resolve from the real venv.
+      # Pinned: ty is pre-1.0 and a version bump can add diagnostics unrelated to the diff.
+      # --exit-zero-on-warning: unresolved-import is DOWNGRADED to warn in pyproject (heavy
+      # deps are lazy optional imports by design) — warnings stay visible, errors fail.
+      - name: ty (type check)
+        run: uvx ty@0.0.56 check harness/ --exit-zero-on-warning
+      # .venv/bin/pytest, NOT `uv run pytest`: this job's env is hand-composed (nightly
+      # daft + CPU torch on top of the editable install); `uv run` would re-lock the
+      # project and sync over it. Template users get a clean `uv run pytest` via the
+      # python marker on the vla_jepa extra + [tool.uv] conflicts.
+      - name: pytest
+        run: .venv/bin/pytest tests/ -q
+
+  docs-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - name: mkdocs build --strict
+        run: uvx --with mkdocs-material mkdocs build --strict

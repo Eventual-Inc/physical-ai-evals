@@ -15,7 +15,6 @@ import pytest
 from harness.policies.openvla import LIBERO_CHECKPOINTS, OpenVLAPolicy
 from harness.policies.vla_jepa import VLAJEPAPolicy
 
-
 # ------------------------------------------------------------------ fakes
 
 class _FakeProcessor:
@@ -169,7 +168,7 @@ def test_vlajepa_one_select_action_per_act():
 
 
 def test_vlajepa_pre_post_pipelines_applied():
-    torch = pytest.importorskip("torch")
+    pytest.importorskip("torch")
     seen = {}
 
     def pre(batch):

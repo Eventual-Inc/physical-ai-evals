@@ -1,0 +1,117 @@
+name: Publish Package
+
+# Release flow — every release exercises TestPyPI BEFORE production:
+#   build (once) -> publish to TestPyPI -> install-from-TestPyPI smoke test -> publish to PyPI.
+# The same built artifacts flow through every stage (no rebuild between indexes).
+#
+# Trusted publishing (no API tokens) via the `testpypi` and `pypi` GitHub environments.
+# One-time setup: trusted publishers for physical-ai-evals on BOTH test.pypi.org and
+# pypi.org, each pointing at this repo + this workflow + the matching environment name.
+# Optional: a required-reviewer protection rule on the `pypi` environment turns the final
+# job into a manual approval gate between staging and prod.
+on:
+  push:
+    tags:
+    - v*
+
+  workflow_dispatch:
+    inputs:
+      test-pypi:
+        description: Stop after TestPyPI (skip production PyPI)
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - uses: astral-sh/setup-uv@v7
+    - name: Read version (tag pushes must match pyproject)
+      id: version
+      run: |
+        VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
+          echo "::error::tag ${GITHUB_REF_NAME} != pyproject version v${VERSION} — bump pyproject before tagging"
+          exit 1
+        fi
+    - name: Build wheel and sdist
+      run: uv build --sdist --wheel
+    - uses: actions/upload-artifact@v4
+      with:
+        name: dist
+        path: dist/
+        if-no-files-found: error
+
+  publish-testpypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: dist
+        path: dist/
+    - name: Publish to TestPyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        repository-url: https://test.pypi.org/legacy/
+        # TestPyPI forbids re-uploading a version — don't fail pipeline re-runs on it.
+        # (Consequence: a version once staged is immutable there; verify still checks
+        # the tagged wheel's version, so a stale staging copy can't silently pass prod.)
+        skip-existing: true
+
+  verify-testpypi:
+    needs: [build, publish-testpypi]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: astral-sh/setup-uv@v7
+    - uses: actions/download-artifact@v4
+      with:
+        name: dist
+        path: dist/
+    - name: Install from TestPyPI and smoke-test
+      run: |
+        V="${{ needs.build.outputs.version }}"
+        uv venv --python 3.12
+        # 1) Dependencies resolve against REAL PyPI, driven by the built wheel's metadata
+        #    (never resolve deps on TestPyPI: its graph is stale and name-squattable).
+        uv pip install "dist/physical_ai_evals-${V}-py3-none-any.whl"
+        # 2) The index copy itself installs — retry: TestPyPI propagation can lag upload.
+        ok=""
+        for i in $(seq 1 10); do
+          if uv pip install --index-url https://test.pypi.org/simple/ --no-deps --reinstall "physical-ai-evals==${V}"; then
+            ok=1; break
+          fi
+          echo "TestPyPI not serving ${V} yet (attempt ${i}/10); retrying in 30s"
+          sleep 30
+        done
+        [ -n "$ok" ]
+        # 3) Smoke: import surface, version consistency (catches pyproject/__init__ drift),
+        #    and the console-script entry point.
+        .venv/bin/python -c "import harness; assert harness.__version__ == '${V}', harness.__version__; import harness.schema, harness.writer; print('ok', harness.__version__)"
+        .venv/bin/harness --help > /dev/null
+
+  publish-pypi:
+    # Tag pushes always continue to prod (after the TestPyPI gate); manual dispatches
+    # only when test-pypi=false.
+    if: github.event_name == 'push' || !inputs.test-pypi
+    needs: [build, verify-testpypi]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: dist
+        path: dist/
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1

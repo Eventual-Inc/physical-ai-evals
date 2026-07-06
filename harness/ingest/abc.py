@@ -16,8 +16,8 @@ from __future__ import annotations
 import glob
 import json
 import os
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 import numpy as np
 

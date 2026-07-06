@@ -14,23 +14,27 @@ Friction is captured in three layers:
 
 Convention: one bullet per gotcha, lead with the symptom, then the fix.
 
-## Environments — you need FOUR, and several are mutually exclusive
+## Environments — ONE Python (3.12), TWO images, and the 3.8 myth
 
-- **Core / notebook env (Python ≥3.10):** `pyarrow`, `numpy<2`, `daft==0.7.15`, sklearn,
-  imageio. This is what the schema/writer/ingest-base and the notebook run in.
-- **LIBERO sim env (Python 3.8.13):** `robosuite==1.4.0`, `bddl==1.0.1`, `numpy==1.22.4`,
-  `gym==0.25.2`, `easydict==1.9`, `robomimic==0.2.0`, `torch==1.11.0+cu113`. **Does not
-  co-install with the core env** — `numpy==1.22.4` is required by robosuite 1.4 but the
-  core stack wants `numpy>=1.24`. Keep sim in its own conda env; the harness talks to it
-  via the persisted parquet schema, not in-process.
-- **OpenVLA env:** `torch==2.2.0`, `transformers==4.40.1`, `tokenizers==0.19.1`,
-  `timm==0.9.10`. **Newer transformers silently breaks** the remote `predict_action`
-  code path (load error or wrong output). Own venv.
-- **VLA-JEPA env:** StarVLA + Qwen3-VL-2B + V-JEPA2 stack. Conflicts with OpenVLA's
-  old transformers. The public repo uses conda env `VLA_JEPA`, Python 3.10, and serves the
-  policy through `deployment/model_server/server_policy.py`. Own venv/image.
-- Corollary: **do not assume both policies import in one process.** The harness isolates
-  them (separate runs, or subprocess); the parquet schema is the only thing they share.
+The story we started with ("you need FOUR mutually exclusive environments, LIBERO needs
+Python 3.8") turned out to be mostly **lore, and we falsified it on Modal**. Current, verified
+truth:
+
+- **One interpreter everywhere: Python 3.12.** Both GPU images build and run on 3.12; the
+  core package supports 3.10–3.13 (`requires-python >=3.10`; the `vla_jepa` extra needs
+  ≥3.12 because lerobot does). Dev on 3.13 works.
+- **Two images, split by transformers — NOT by Python.** OpenVLA needs
+  `transformers==4.40.1` (newer silently breaks its remote `predict_action`); VLA-JEPA's
+  lerobot stack needs `transformers 5.4–5.6`. Those cannot share a site-packages, so each
+  policy gets its own Modal app/image (`modal_app.py`, `modal_vla_jepa_app.py`). Same
+  Python, same LIBERO, same harness code mounted into both.
+- **The "LIBERO needs Python 3.8" myth, busted:** LIBERO's `setup.py` is
+  `install_requires=[]` — its scary `requirements.txt` (numpy 1.22.4, torch 1.11) is
+  training-only and never installed for rollouts. LIBERO + policy stacks run in ONE process
+  on 3.12: robosuite 1.4.1 / gym 0.26 / bddl 3.6 / numpy 1.26.4 (OpenVLA image, sweep-verified)
+  and the `hf-libero` wheel (VLA-JEPA image, sweep-verified).
+- Both policies still don't import in one *process* (the transformers pin) — but each runs
+  fully in-process with the sim; the parquet schema is the cross-policy contract.
 
 ## LIBERO / robosuite / MuJoCo
 
@@ -38,19 +42,24 @@ Convention: one bullet per gotcha, lead with the symptom, then the fix.
   macOS (no GPU), `osmesa` = CPU/slow, `glfw` fails headless. Import-first-set-after is too
   late → "EGL error" / "Failed to create GL context" (LIBERO issue #115). The runner sets
   `os.environ['MUJOCO_GL']` at the top of `_set_mujoco_gl()` before any sim import.
+- **Pin `mujoco==3.9.0` with robosuite 1.4.x.** Unpinned rebuilds drift to mujoco>=3.10
+  whose `mj_fullM` binding signature robosuite can't call (`TypeError: incompatible
+  function arguments`) — surfaced on the 2026-07-03 rebuild, would hit any rebuild.
 - **robosuite 1.4 uses the modern DeepMind `mujoco` binding, not `mujoco-py`.** Do not
   install mujoco-py. Do not bump robosuite to 1.5 — it changes obs key conventions and the
   controller config format and breaks BDDL loading.
-- **`numpy>=1.24` breaks robosuite 1.4** (removed `np.float`/`np.bool`). Pin `1.22.4`.
+- ~~`numpy>=1.24` breaks robosuite 1.4~~ **FALSIFIED**: robosuite 1.4.1 + numpy 1.26.4 is
+  the sweep-verified combination (the np.float/np.bool lore applied to 1.4.0-era code paths
+  we never hit). Do still pin numpy <2 next to torch 2.2.
 - **Agentview images render 180° rotated** vs what released VLA checkpoints expect. Feed
   the raw frame and success silently tanks to ~0 — no error. The runner de-rotates with
   `img[::-1, ::-1]` before handing the frame to the policy. Eyeball a dumped frame as the
   first verification step.
 - **`control_mode` (relative vs absolute) must match the checkpoint's training
   parameterization.** Mismatch = near-zero success, no exception.
-- **`env.step` is the OLD gym 4-tuple** `(obs, reward, done, info)` (gym==0.25.2), NOT
-  gymnasium's 5-tuple. A harness expecting `(obs, reward, terminated, truncated, info)`
-  misparses.
+- **`env.step` is the OLD gym 4-tuple** `(obs, reward, done, info)` — robosuite's own API,
+  NOT gymnasium's 5-tuple. Holds under the resolved gym 0.26.2 (robosuite doesn't route
+  through gym's step). A harness expecting `(obs, reward, terminated, truncated, info)` misparses.
 - **`env.close()` between episodes/tasks** — leaked MuJoCo GL contexts crash or leak memory
   across a long sweep. `hard_reset=True` is the default.
 - **Determinism = the (suite, task_id, init_state_id, seed) quadruple.** Seed alone is not
@@ -74,24 +83,22 @@ Convention: one bullet per gotcha, lead with the symptom, then the fix.
 - **`flash_attention_2` is unavailable on Apple Silicon/CPU** (the likely dev machine →
   darwin/MPS). Use `attn_implementation='sdpa'`/`'eager'` + float32; expect single-episode
   smoke throughput, not full-suite runs.
-- **VLA-JEPA chunking:** the HF LIBERO config has `future_action_window_size=6`, so the
-  server returns 7 normalized actions per request. The harness caches that chunk locally and
-  re-plans only on chunk boundaries. **`reset()` between episodes** clears the local chunk —
-  skip it and a new episode replays the previous chunk.
-- **VLA-JEPA load path is StarVLA WebSocket, not LeRobot.** The official LIBERO eval starts
-  `deployment/model_server/server_policy.py --ckpt_path .../LIBERO/checkpoints/VLA-JEPA-LIBERO.pt`
-  and the sim talks to it with `WebsocketClientPolicy`. The stats key is `franka`; the HF
-  config must be patched to point `framework.qwenvl.base_vlm` and `framework.vj2_model.base_encoder`
-  at local Qwen3-VL/V-JEPA2 snapshots, and `flash_attention_2` can be changed to `sdpa` for
-  a tractable Modal build. Do not confuse **VLA-JEPA** (arXiv 2602.10098, ginwind) with the
-  unrelated **JEPA-VLA** (arXiv 2602.11832).
+- **VLA-JEPA chunking lives INSIDE the lerobot policy** (`chunk_size=7`, `n_action_steps=7`):
+  `select_action` dequeues one action per call from its internal queue; the adapter keeps no
+  cache. **`reset()` between episodes** clears that queue — skip it and a new episode replays
+  the previous episode's chunk.
+- **VLA-JEPA loads IN-PROCESS via the lerobot port** (`VLAJEPAPolicy.from_pretrained(
+  'lerobot/VLA-JEPA-LIBERO')` + `make_pre_post_processors`) — sweep-verified. The ginwind
+  StarVLA WebSocket server was the original official path; we implemented it, landed it for
+  history, and deleted it (git: 98c4e67 → 7055e6f). Do not confuse **VLA-JEPA** (arXiv
+  2602.10098, ginwind) with the unrelated **JEPA-VLA** (arXiv 2602.11832).
 
 ## Ingest
 
 - **LeRobot v2.1 vs v3.0 split.** Current `lerobot` (0.5.1) writes v3.0
   (many-episodes-per-file); VLA-JEPA consumes v2.1 (one-file-per-episode). Branch on
-  `dataset.meta.info['codebase_version']`. Also `lerobot 0.5.1` needs Python ≥3.12 vs
-  VLA-JEPA's 3.10 — pin the lerobot the VLA-JEPA path actually uses.
+  `dataset.meta.info['codebase_version']`. lerobot requires Python ≥3.12 — which is the
+  repo-wide interpreter anyway; we pin lerobot at a main SHA until the release after 0.5.1.
 - **LeRobot images come back float CHW (normalized) by default.** Pass `return_uint8=True`
   (or convert) — the common schema fixes uint8 HWC.
 - **HDF5 demo keys sort wrong:** `demo_10` sorts before `demo_2` lexicographically. Sort by
@@ -104,8 +111,8 @@ Convention: one bullet per gotcha, lead with the symptom, then the fix.
 - **Camera key names are not shared:** `observation.images.<cam>` vs `exterior_image_1_left`
   vs `agentview_image`. Never hardcode — map to canonical roles (`primary`/`wrist`) via
   `DEFAULT_CAMERA_ROLE_MAPS`.
-- **DROID is heavy:** TF + tensorflow_datasets + GCS, f64 tensors. Use the `droid_100`
-  subset (~2GB, identical schema) for smoke tests; `.numpy()` + cast f64→f32.
+- **DROID, TF-free:** we read raw DROID via `daft.datasets.droid.raw()` + our own
+  `trajectory.h5` parser (no tensorflow anywhere). Tensors are f64 — cast to f32 on ingest.
 
 ## Daft-native ingest — DROID & LeRobot are in Daft (reshapes our adapter strategy)
 
@@ -239,11 +246,11 @@ unnormalized LIBERO action at a time, and `reset()` clears the cached chunk betw
       installed". Fix: `apt_install("cmake")`. (Same genus as the evdev/kernel-headers and
       no-compiler gotchas on the OpenVLA image: CUDA runtime bases are build-tool-free.)
     - The VLA-JEPA image is py3.12 / transformers 5.4–5.6 / numpy 2.x — SEPARATE image from
-      OpenVLA's py3.10/4.40.1 (two-app split stands). numpy-2 × daft/pyarrow inside that image
+      OpenVLA's 4.40.1 image (same Python 3.12 since 2026-07-03; the split is transformers). numpy-2 × daft/pyarrow inside that image
       is a smoke-test watch item; loading also pulls Qwen3-VL-2B + V-JEPA2 (3 HF repos; the
       world-model encoder loads even though inference never uses it — faithful default).
 - **Single-image LIBERO + OpenVLA: VERIFIED on Modal (2026-06-12).** Image builds + LIBERO
-  imports + benchmark/bddl resolution green (CPU smoke). Resolved/pinned set: **python 3.10,
+  imports + benchmark/bddl resolution green (CPU smoke). Resolved/pinned set at the time: **python 3.10 (image unified to 3.12 on 2026-07-03),
   torch 2.2.0, transformers 4.40.1, robosuite 1.4.1, mujoco 3.9.0, numpy==1.26.4 (pinned),
   opencv-python==4.9.0.80 (pinned), gym 0.26.2, bddl 3.6.0, daft 0.7.15**. (Still to validate on
   GPU: EGL env rendering + OpenVLA inference — the smoke only exercised import + task metadata,
@@ -252,7 +259,7 @@ unnormalized LIBERO action at a time, and `reset()` clears the cached chunk betw
   `python_requires=">=3"`, so `pip install -e LIBERO` pulls NOTHING — its `requirements.txt`
   (numpy==1.22.4, transformers==4.21.1, robomimic) is LIBERO's TRAINING deps, never used for
   rollouts. The real combined env (OpenVLA `experiments/robot/libero/libero_requirements.txt`,
-  conda **python=3.10**) is just: the policy's HF inference stack + **robosuite==1.4.1** + bddl +
+  conda **python=3.10** — their env choice, not a constraint; ours runs 3.12) is just: the policy's HF inference stack + **robosuite==1.4.1** + bddl +
   easydict + cloudpickle + gym + imageio[ffmpeg], with **numpy LEFT UNPINNED** so pip resolves
   one version for torch 2.2 + robosuite. No OpenPI split. Friction points found (each = a blog
   paragraph):

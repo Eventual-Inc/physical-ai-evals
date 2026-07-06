@@ -3,7 +3,7 @@
 The chronological record: each entry is one thing that actually broke (or silently lied),
 when, what it looked like, and what fixed it. The condensed symptom→fix reference is
 [`FRICTION_POINTS.md`](FRICTION_POINTS.md); deep per-topic detail lives in
-[`../NOTES.md`](../NOTES.md). Commits are receipts.
+[`NOTES.md`](https://github.com/Eventual-Inc/physical-ai-evals/blob/main/NOTES.md). Commits are receipts.
 
 Convention: **[where it bit]** symptom → root cause → fix.
 
@@ -88,6 +88,36 @@ Convention: **[where it bit]** symptom → root cause → fix.
 20. **[observation]** After the `env.reset()` fix, episode `libero_spatial/0/1/7` (VLA-JEPA)
     flipped from fail-at-cap to success — cached-env contamination degrades outcomes well
     before it hard-crashes. (n=1; GPU nondeterminism not fully excluded.) *(noted in NOTES)*
+
+## 2026-07-03 — the Python-3.12 unification
+
+21. **[image rebuild]** `TypeError: mj_fullM(): incompatible function arguments` at env
+    stepping — NOT the interpreter bump: `mujoco` was unpinned, the June image happened to
+    resolve 3.9.0 (verified), and today's rebuild drifted to a newer mujoco whose `mj_fullM`
+    binding signature robosuite 1.4.x cannot call. Any rebuild on any Python would have hit
+    this. → Pin `mujoco==3.9.0` (the sweep-verified version). The SAME rebuild also drifted
+    scipy to 1.18 (requires numpy>=2, vs our 1.26.4 pin) → pin `scipy==1.15.3` too. Lesson: an
+    unpinned transitive dep makes "the same image" a function of the build date — pin the
+    whole verified resolve set around anything numpy-adjacent.
+
+## 2026-07-06 — ship day: the universal lock
+
+22. **[CI / uv]** `uv run pytest` died resolving the project — uv's universal lock resolves
+    EVERY extra over the FULL requires-python range and all platforms, so one git-dep extra
+    bricks `uv lock`/`uv run` for users who never asked for it. Peeling the onion: lerobot's
+    py>=3.12 floor vs our >=3.10 (marker-fixable) → lerobot's numpy>=2 vs core numpy<2
+    (moved the <2 pin into the openvla extra, where its reason — torch 2.2 — lives) → "no
+    version of torch==2.2.0", which was NOT tags, NOT a yank, NOT platforms (cp312 wheels
+    exist; a minimal repro holding two torch versions across `[tool.uv] conflicts` splits
+    resolves fine from PyPI): the lerobot GIT dep's own marker-conditional torch pins poison
+    the sibling split in every conflicts shape we tried (uv 0.11.21–0.11.26). → Fix: the
+    vla_jepa extra becomes a documented pointer (the Modal image was always the canonical
+    install), `[tool.uv] environments` caps the lock at the verified <3.13 (torch 2.2.0
+    ships no cp313 wheel), `.python-version` pins the canonical 3.12, and dev deps become a
+    PEP 735 group so fresh-clone `uv run pytest` just works. CI runs `.venv/bin/pytest`
+    directly (its env is hand-composed: nightly daft + CPU torch). Lesson: a universal
+    resolver makes one exotic dependency everyone's problem — scope the lock to exactly
+    what you verify.
 
 ## Standing lessons
 

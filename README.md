@@ -1,11 +1,28 @@
-# vla_jepa_harness
+# physical-ai-evals
 
-**Reproducing a VLA evaluation is broken.** Every model ships a bespoke, brittle eval stack;
-every benchmark has its own environment hell; and when you finally get it running you get one
-number. **You can get a success rate; you can't easily answer _why_ your VLA fails.**
+This repository provides a modern, unified Python environment for running robotics model
+benchmarks across VLA, JEPA, LIBERO, MuJoCo, and robosuite.
 
-This repo makes *"run VLA-JEPA and OpenVLA on LIBERO, on your own GPU, end to end — and see
-why it fails"* a solved, repeatable thing:
+Many academic robotics repositories ship with strict dependency pins and isolated environment
+assumptions. Those constraints often make it difficult to reproduce results, compare models,
+or integrate research code into production-grade systems. After testing the dependency
+requirements across several fragmented implementations, we found that many of these
+constraints were not fundamental. They could be resolved with standard engineering practices,
+modern Python tooling, and careful compatibility fixes.
+
+The purpose of this project is to reduce that friction. It gives physical AI researchers and
+industry practitioners a coherent starting point for benchmarking new models without needing
+to reconstruct a fragile environment for every paper or baseline. The repository includes the
+compatibility work, bug fixes, and workflow templates needed to run these systems in a single
+environment that can also scale on [Modal](https://modal.com).
+
+The aim is not only reproducibility, but **operational reproducibility**: the ability to run,
+modify, compare, scale, and extend research systems in a way that matches how real engineering
+teams work.
+
+**And one number is not enough.** You can get a success rate; you can't easily answer _why_
+your VLA fails. This repo makes *"run VLA-JEPA and OpenVLA on LIBERO, on your own GPU, end to
+end — and see why it fails"* a solved, repeatable thing:
 
 1. **Reproduce** — both policies run **in-process** on Modal GPUs against the canonical LIBERO
    protocol (50 trials/task, seed 7 — the OpenVLA-origin constants that openpi, starVLA, and
@@ -32,7 +49,7 @@ per-benchmark Docker, this buys reproducibility with one process you can read to
 pip install -e ".[dev]"
 # daft.datasets.lerobot + Hdf5File are on Daft nightly until the next release:
 pip install daft --pre --extra-index-url https://nightly.daft.ai
-pytest                          # 39 tests, CPU-only, no weights/sim needed
+pytest                          # 42 tests, CPU-only, no weights/sim needed
 
 harness rollout --policy vla_jepa --suite libero_spatial --task-ids 0 --episodes 2 --dry-run
 harness ingest  --source hdf5 --input demos/libero_goal.hdf5 --out data/rollouts --dry-run
@@ -40,12 +57,17 @@ harness ingest  --source hdf5 --input demos/libero_goal.hdf5 --out data/rollouts
 
 `--dry-run` prints the resolved plan without importing any heavy policy/sim stack.
 
-The two policy stacks are mutually incompatible and each gets its **own environment/image**
-(see [NOTES.md](NOTES.md)):
+**Python: one interpreter — 3.12 — everywhere** (core supports 3.10–3.13; the `vla_jepa`
+extra needs ≥3.12 because lerobot does). The two policy stacks still need **separate
+environments/images**, but the split is the *transformers pin* (OpenVLA ==4.40.1 vs
+VLA-JEPA's 5.4–5.6), never the Python version — the old "LIBERO needs Python 3.8" story is
+a myth we falsified on Modal (see [NOTES.md](NOTES.md)):
 
 ```bash
-pip install -e ".[openvla]"        # transformers==4.40.1 / py3.10 stack
-pip install -e ".[vla_jepa]"       # lerobot@pinned-SHA (Qwen3-VL / transformers 5.x, py>=3.12)
+pip install -e ".[openvla]"        # transformers==4.40.1 stack (py3.12-verified)
+# VLA-JEPA (linux GPU box; the Modal image is the canonical path — see below). The extra is
+# a documented pointer, not deps: lerobot's git pyproject breaks uv's universal lock (FRICTION_LOG #22)
+pip install "lerobot[vla_jepa] @ git+https://github.com/huggingface/lerobot@052d329470ea8d5c98a4b4bd1f6c18abd0ac7c34"
 pip install -e ".[ingest_hdf5]"    # h5py (also: ingest_aloha / ingest_egodex / ingest_abc)
 pip install -e ".[embed]"          # sentence-transformers for the clustering pass
 ```
@@ -53,11 +75,20 @@ pip install -e ".[embed]"          # sentence-transformers for the clustering pa
 ## Running rollouts on Modal
 
 Rollouts run as a `@daft.cls` UDF on Modal GPUs — one episode spec per row, per-step
-trajectories written to a parquet glob. Two apps because the two policy images can't share
-an environment (OpenVLA: py3.10/transformers 4.40; VLA-JEPA: py3.12/lerobot):
+trajectories written to a parquet glob. Two apps (both Python 3.12) because the transformers
+pins conflict (OpenVLA ==4.40.1; VLA-JEPA's lerobot stack 5.4–5.6).
+
+One-time setup (auth + the HF token secret; volumes auto-create on first run):
 
 ```bash
-pip install -e ".[modal]"
+pip install -e ".[dev,modal]"
+modal token new
+modal secret create hf-token HF_TOKEN=<your-hf-token>
+```
+
+Then one command per sweep:
+
+```bash
 
 # OpenVLA (image verified: builds + LIBERO imports green)
 modal run harness/rollout/modal_app.py --policy-type openvla --suites libero_spatial --task-ids 0 --episodes 2
@@ -142,8 +173,32 @@ docs/EVAL_PATTERNS.md  the VLA evaluation grammar: 9 components, model x benchma
 notebooks/             regrasp_demo.py (failure forensics on synthetic data) + notebook outline
 NOTES.md               the reproducibility-gotchas log — every landmine, with fixes
 BACKLOG.md             explicitly-not-shipping list + idea parking lot
-tests/                 39 CPU-only tests: schema · ingest (all six) · policies · rollout loop
+tests/                 42 CPU-only tests: schema · ingest (all six) · policies · rollout loop
 ```
+
+## Use it as a starter kit
+
+This repo is a template, not just an artifact of one comparison: **uv**-managed,
+**ruff**-linted, **ty**-typechecked, CPU-testable (42 tests, no GPU or weights needed), with CI
+and a docs site already wired. To evaluate **your** policy on a LIBERO-shaped benchmark, there
+are exactly three seams:
+
+1. **Your policy** — subclass `Policy` ([`harness/rollout/policy.py`](harness/rollout/policy.py)):
+   `reset(instruction)` + `act(obs) -> (7,) float32`. Both shipped policies
+   ([`harness/policies/`](harness/policies/)) are ~150-line adapters behind this seam — the
+   runner, writer, schema, and Modal apps never change. The injection seams (`_policy=`,
+   `_vla=`) let you unit-test your adapter with fakes before a GPU ever spins up.
+2. **Your benchmark** — anything *LIBERO-shaped* fits
+   [`run_episode`](harness/rollout/libero_runner.py): episodes enumerated as
+   (task × init-state × seed) specs, observations = RGB (+ wrist + proprio), actions = 7-DoF
+   EEF deltas. Swap `make_env` and the suite constants in
+   [`harness/config.py`](harness/config.py).
+3. **Your data** — write one `Ingestor` producing `Episode`/`Step`
+   ([`harness/ingest/base.py`](harness/ingest/base.py)) and your dataset lands in the same
+   parquet schema as the rollouts. Six adapters in-tree to copy from.
+
+For GPU scale, copy either Modal app ([`harness/rollout/modal_app.py`](harness/rollout/modal_app.py))
+and swap the pip pins — the resumable-sweep and deploy/spawn machinery is policy-agnostic.
 
 ## The three deliverables
 

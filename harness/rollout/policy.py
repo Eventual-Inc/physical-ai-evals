@@ -25,10 +25,10 @@ class Observation(TypedDict, total=False):
     feeding the raw frame silently tanks success to ~0, no exception; see NOTES.md).
     """
 
-    image: np.ndarray        # HxWx3 uint8, de-rotated agentview RGB  (REQUIRED)
-    wrist_image: np.ndarray  # HxWx3 uint8, wrist cam (optional; VLA-JEPA LIBERO uses 2 cams)
-    state: np.ndarray        # proprio vector (optional)
-    instruction: str         # the language command (also given via reset; kept for convenience)
+    image: np.ndarray               # HxWx3 uint8, de-rotated agentview RGB  (REQUIRED)
+    wrist_image: np.ndarray | None  # HxWx3 uint8, wrist cam — None when the env has no wrist cam
+    state: np.ndarray | None        # proprio vector — None when the policy is vision-only
+    instruction: str                # the language command (also given via reset; kept for convenience)
 
 
 class Policy(ABC):

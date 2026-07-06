@@ -1,12 +1,60 @@
-# Our VLA scored 0% and the model was innocent
+# Operational reproducibility: benchmarking modern VLAs in one Python environment
 
-*Reproducing a VLA eval end-to-end — OpenVLA vs VLA-JEPA on LIBERO, on rented GPUs — and
-finding the bug with one DataFrame query instead of an afternoon of scrubbing video.*
+*Running VLA-JEPA and OpenVLA on LIBERO, on rented GPUs, in one modern Python stack — and
+finding the bugs with DataFrame queries instead of afternoons of scrubbing video.*
 
-<!-- FIGURES: hero trace + failure-mix bar are baked in notebooks/failure_modes.ipynb;
+<!-- Title alternates (author's pick): "Our VLA scored 0% and the model was innocent" ·
+     "You don't need three conda envs to eval a VLA"
+     FIGURES: hero trace + failure-mix bar are baked in notebooks/failure_modes.ipynb;
      the gripper-query terminal shot is reproducible from the parquet. -->
 
 ---
+
+Python's promise is that it can act as a high-level interface across many performance stacks:
+distributed computing, neural network training, simulation, visualization, robotics, and more.
+In practice, Python packaging often becomes one of the biggest sources of friction, especially
+for developers working inside narrow research ecosystems.
+
+This problem is particularly visible in academic AI and robotics repositories. Implementations
+of new papers, model architectures, and benchmarks frequently ship with strict dependency
+pins, outdated libraries, and fragile environment assumptions. Those choices may make sense at
+publication time, but they often create unnecessary complexity for anyone trying to integrate
+the work into a broader system. Industry practitioners do not usually have the luxury of
+treating each paper repository as its own isolated world. They need coherent stacks that can
+be deployed, scaled, tested, and maintained.
+
+I spent several weekends investigating whether the dependency constraints around VLA, JEPA,
+LIBERO, MuJoCo, and robosuite were genuinely necessary, or whether they were mostly artifacts
+of how the original research code was packaged. My conclusion is that much of the pain is
+avoidable. I was able to run VLA and JEPA models on LIBERO, with MuJoCo and robosuite, inside
+a single modern Python environment using current tooling and dependencies. The same
+environment also scales cleanly on Modal.
+
+That matters because the reproducibility problem in AI is not only about random seeds, missing
+checkpoints, or insufficient documentation. It is also about developer workflow. When research
+code depends on brittle, outdated, or mutually incompatible environments, it becomes harder to
+compare methods, extend baselines, reproduce benchmarks, and transition promising work into
+real systems.
+
+Modern AI models are now strong enough to assist with refactoring, debugging, dependency
+upgrades, and regression comparison. Given that, it is increasingly difficult to justify
+publishing repositories that rely on unnecessarily strict, stale dependency pins without
+providing a maintainable path forward. Researchers should still preserve exact environments
+for archival reproducibility, but that should not preclude offering a modern, integrated
+environment for actual development.
+
+I created this repository to make it easier to run benchmarks on new robotics models.
+Vision-language-action models, world models, and action-conditioned models are being explored
+across robotic manipulation, humanoids, autonomous vehicles, and other physical AI systems.
+The goal of this project is to give researchers and practitioners a coherent toolset for
+evaluating these systems without inheriting the full fragmentation cost of the current Python
+packaging ecosystem.
+
+What follows is the receipt: what the consolidation actually took, what it found, and why
+"one environment" is only half the story — because once the environment is honest, the data
+it produces can tell you things a success rate never will.
+
+## The receipt: our VLA scored 0% and the model was innocent
 
 OpenVLA's published number on LIBERO-Spatial is 84.7%.
 
@@ -54,7 +102,7 @@ VLA evaluation fails this way:
 
 We mapped the eval stacks of openpi, starVLA, OpenVLA, LeRobot, and AllenAI's
 vla-evaluation-harness against each other (the full grammar is in
-[`docs/EVAL_PATTERNS.md`](EVAL_PATTERNS.md)). Every one of them decomposes into the same nine
+[`docs/EVAL_PATTERNS.md`](https://github.com/Eventual-Inc/physical-ai-evals/blob/main/docs/EVAL_PATTERNS.md)). Every one of them decomposes into the same nine
 components — checkpoint, normalization stats, policy wrapper, serving split, env construction,
 chunk handling, success criterion, trials and seeds, recording. And the failure mode of the
 whole genre is the same: **plumbing errors masquerade as model quality.** One scalar out, no
@@ -110,11 +158,15 @@ cycles, measured finger separation, end-effector height — and the picture is o
 **OpenVLA fails 16× more often than VLA-JEPA (16% vs 1%) — and 15 of its 16 failures are the
 same failure: a re-grasp fumble loop.**
 
+![How each policy fails: failure rate by mode — OpenVLA's failures are dominated by re-grasp fumble loops](assets/failure-mix-comparison.png)
+
 The hero episode makes it visceral. "Pick up the black bowl next to the ramekin and place it
 on the plate": OpenVLA commands **23 grasp attempts** in one episode. The finger-separation
 trace shows the whole story — fingers snap shut to ~2mm (that's the width of *air*, not a
 bowl), open, reposition, snap shut on air again, twenty-some times until the clock runs out.
 We never watched the video to learn this. The trace *is* the video, minus the waiting.
+
+![OpenVLA commanding 23 grasp attempts in one failed episode — measured finger separation collapsing to ~2mm ('closed on air') over and over, with end-effector height overlaid](assets/regrasp-hero-trace.png)
 
 (VLA-JEPA's single failure across 100 episodes? Also a fumble loop. When strong policies fail,
 they apparently fail the same way — a hypothesis we now get to test on more suites.)
@@ -123,11 +175,13 @@ That's the actionable difference between 99% and 84%: not "be better," but *this
 objects on the regrasp and can't recover*. That's a data-curation target and a fine-tuning
 target, not a shrug.
 
-## The field guide: 18 landmines, so you don't step on them
+## The field guide: 20 landmines, so you don't step on them
 
 We logged every failure we hit getting this running cleanly — because getting it running
-cleanly was the point. The full log is
-[`NOTES.md`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/NOTES.md); the highlights:
+cleanly was the point. The condensed field guide is
+[`FRICTION_POINTS.md`](https://github.com/Eventual-Inc/physical-ai-evals/blob/main/docs/FRICTION_POINTS.md) (symptom → fix), the
+chronological story is [`FRICTION_LOG.md`](https://github.com/Eventual-Inc/physical-ai-evals/blob/main/docs/FRICTION_LOG.md), and the
+deep detail is [`NOTES.md`](https://github.com/Eventual-Inc/physical-ai-evals/blob/main/NOTES.md). The highlights:
 
 **Environment and build.** LIBERO's famous "dependency conflict" is a myth — its `setup.py`
 installs nothing; the scary `requirements.txt` is for training, not rollouts. CUDA runtime
@@ -167,6 +221,25 @@ The notebook doesn't care where the parquet came from. The same schema ingests D
 robomimic HDF5, ALOHA, EgoDex, and ABC — so if you've got demonstrations or rollouts in any of
 those, the failure forensics run on *your* data with a path change. If you try it, we genuinely
 want to hear what breaks: the landmine log grows by contribution.
+
+The longer-term goal is to add more models, more simulation environments, and more benchmark
+suites so that the robotics community can iterate faster. Strong tooling will not solve the
+hard parts of physical AI by itself, but it can remove a large amount of unnecessary drag.
+Teams should be spending their engineering effort on the self-improvement loop, hardware
+constraints, control design, evaluation quality, and deployment — not on rebuilding
+incompatible Python environments for every paper they want to test.
+
+## A direct ask, if you do this work
+
+<!-- AUTHOR CTA DRAFT — edit channel/link to taste before publishing -->
+If you evaluate VLAs — or you've burned a weekend rebuilding someone's environment to run
+one — I want fifteen minutes of your candor. What broke? What does your eval record that
+ours doesn't? What would make you actually run this on your own data?
+
+Open an [issue](https://github.com/Eventual-Inc/physical-ai-evals/issues) with what broke or what's missing, or reach me directly —
+**[ekleven@vangelis.tech](mailto:ekleven@vangelis.tech)** — and I'll personally help you get your benchmark
+running. If this repo can genuinely remove drag for your lab, that's the whole point of
+having built it in the open.
 
 We're Eventual, we build [Daft](https://daft.ai), and we're building data tooling for physical
 AI. If success rates are hiding your failures too — come find us.

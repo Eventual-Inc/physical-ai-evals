@@ -64,6 +64,8 @@ Ordered roughly by how cleanly they'd extend the existing contracts.
   `@modal.enter(snap=True)` pattern. Our `@daft.cls` loads lazily on the Daft worker (after the
   snapshot window) so it's off; wire the warm-load into the snapshot to enable it. Worth it once
   a full 400-episode sweep is the bottleneck.
+- **Project website** hosting the polished intro (docs/BLOG_POST.md opening) + the executed
+  notebook figures — the "front door" version of the README for non-GitHub audiences.
 - **Multibase entry points** (mentioned in the original README stub) — deferred; the Daft
   story is the June wedge.
 
