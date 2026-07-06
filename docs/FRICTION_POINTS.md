@@ -1,6 +1,6 @@
 # Friction points — the condensed field guide
 
-**19 landmines between you and a reproducible VLA eval.** Symptom → fix, grouped by when it
+**20 landmines between you and a reproducible VLA eval.** Symptom → fix, grouped by when it
 bites. This is the quick-reference layer; the chronological story is
 [`FRICTION_LOG.md`](FRICTION_LOG.md) and the deep per-topic detail is
 [`NOTES.md`](https://github.com/Eventual-Inc/physical-ai-evals/blob/main/NOTES.md).
@@ -16,6 +16,7 @@ bites. This is the quick-reference layer; the chronological story is
 | 5 | `egl_probe`: "CMake must be installed" | `apt install cmake` (`hf-libero` dep) |
 | 6 | `EOFError` on `import libero` in a container | LIBERO prompts `input()` on first import — bake its config at image build: `printf 'n\n' \| python -c 'import libero.libero'`. (Survived into the `hf-libero` wheel, too) |
 | 7 | LIBERO env construction dies on `matplotlib`/`einops` | `pip --no-deps` drops runtime deps only `libero.libero.envs` needs — import-only smoke tests under-test |
+| 20 | `uv lock`/`uv run` "No solution found" on a project that pip-installs fine | uv resolves **every** extra for **every** python/platform — one exotic (git-dep) extra bricks the lock for all users. Scope with `[tool.uv] environments`, park the exotic stack behind a pointer extra, pin `.python-version` (see [`FRICTION_LOG.md`](FRICTION_LOG.md) #22) |
 
 ## Silent success-rate killers (nothing raises; the number is just wrong)
 

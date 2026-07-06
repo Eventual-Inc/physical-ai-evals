@@ -65,7 +65,9 @@ a myth we falsified on Modal (see [NOTES.md](NOTES.md)):
 
 ```bash
 pip install -e ".[openvla]"        # transformers==4.40.1 stack (py3.12-verified)
-pip install -e ".[vla_jepa]"       # lerobot@pinned-SHA (Qwen3-VL / transformers 5.x, py>=3.12)
+# VLA-JEPA (linux GPU box; the Modal image is the canonical path — see below). The extra is
+# a documented pointer, not deps: lerobot's git pyproject breaks uv's universal lock (FRICTION_LOG #22)
+pip install "lerobot[vla_jepa] @ git+https://github.com/huggingface/lerobot@052d329470ea8d5c98a4b4bd1f6c18abd0ac7c34"
 pip install -e ".[ingest_hdf5]"    # h5py (also: ingest_aloha / ingest_egodex / ingest_abc)
 pip install -e ".[embed]"          # sentence-transformers for the clustering pass
 ```

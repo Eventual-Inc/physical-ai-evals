@@ -175,7 +175,7 @@ That's the actionable difference between 99% and 84%: not "be better," but *this
 objects on the regrasp and can't recover*. That's a data-curation target and a fine-tuning
 target, not a shrug.
 
-## The field guide: 19 landmines, so you don't step on them
+## The field guide: 20 landmines, so you don't step on them
 
 We logged every failure we hit getting this running cleanly — because getting it running
 cleanly was the point. The condensed field guide is
@@ -237,7 +237,7 @@ one — I want fifteen minutes of your candor. What broke? What does your eval r
 ours doesn't? What would make you actually run this on your own data?
 
 Open an [issue](https://github.com/Eventual-Inc/physical-ai-evals/issues) with what broke or what's missing, or reach me directly —
-**[CHANNEL: email/X/Discord link]** — and I'll personally help you get your benchmark
+**[ekleven@vangelis.tech](mailto:ekleven@vangelis.tech)** — and I'll personally help you get your benchmark
 running. If this repo can genuinely remove drag for your lab, that's the whole point of
 having built it in the open.
 

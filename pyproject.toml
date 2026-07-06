@@ -21,7 +21,9 @@ authors = [{ name = "Eventual" }]
 # imports and the smoke test run on a plain CPU box / CI without GPU stacks.
 dependencies = [
   "pyarrow>=15",       # the schema IS a pyarrow schema; nightly daft needs modern pyarrow (24.x)
-  "numpy>=1.24,<2.0",  # 2.0 churns dtypes; the VLA-JEPA Modal image (lerobot) runs numpy 2 separately
+  # numpy 1 AND 2 are both fine for the contract layer (the VLA-JEPA image runs numpy 2 in
+  # production). The <2.0 pin lives in the openvla extra where its reason lives (torch 2.2).
+  "numpy>=1.24",
   # Floor = latest PyPI release. daft.datasets.{lerobot} + Hdf5File are nightly-only until the
   # next release — dev installs use:  pip install daft --pre --extra-index-url https://nightly.daft.ai
   "daft>=0.7.16",
@@ -44,7 +46,8 @@ libero = [
 # --- OpenVLA baseline. Its transformers pin is load-bearing and CONFLICTS with VLA-JEPA;
 #     run OpenVLA in its OWN venv. ---
 openvla = [
-  "torch==2.2.0",
+  "torch==2.2.0",          # no cp313 wheels -> [tool.uv] environments caps the lock at <3.13
+  "numpy>=1.24,<2.0",      # torch 2.2 is numpy-1.x-compiled (_ARRAY_API crash on 2.x)
   "transformers==4.40.1",  # NEWER transformers SILENTLY breaks remote predict_action
   "tokenizers==0.19.1",
   "timm==0.9.10",
@@ -60,9 +63,15 @@ openvla = [
 #     2026-06; pinned at a git SHA until the next lerobot release). Requires Python >=3.12 and
 #     pulls the Qwen3-VL / transformers 5.4-5.6 stack -> its OWN env/image, separate from
 #     OpenVLA's 4.40.1 (see NOTES.md and harness/rollout/modal_vla_jepa_app.py). ---
-vla_jepa = [
-  "lerobot[vla_jepa] @ git+https://github.com/huggingface/lerobot@052d329470ea8d5c98a4b4bd1f6c18abd0ac7c34",
-]
+#     DELIBERATELY EMPTY (a pointer, like ingest_abc): the real install path is the Modal
+#     image (harness/rollout/modal_vla_jepa_app.py — the source of truth for the pins). On a
+#     linux GPU box:  pip install "lerobot[vla_jepa] @ git+https://github.com/huggingface/lerobot@052d329470ea8d5c98a4b4bd1f6c18abd0ac7c34"
+#     Why not a real extra: lerobot is a GIT dep whose own marker-conditional torch pins make
+#     uv's universal lock unsatisfiable in every [tool.uv] conflicts shape we tried (uv
+#     0.11.21-0.11.26 report "no version of torch==2.2.0" in the openvla split; a plain-PyPI
+#     transitive torch resolves fine). An empty extra keeps `uv lock`/`uv run` working for
+#     the whole template — see FRICTION_LOG #22.
+vla_jepa = []
 # --- dataset ingest. Strategy (NOTES.md): DROID/LeRobot delegate to Daft-native readers
 #     (PRs #7089/#7090); we OWN HDF5. NO TensorFlow anywhere — Daft has none either, and we
 #     parse raw-DROID's per-episode trajectory.h5 with our own HDF5 reader, not RLDS/tfds.
@@ -79,6 +88,18 @@ dev = ["pytest>=8.0"]
 
 [project.scripts]
 harness = "harness.cli:main"   # `harness rollout ...` / `harness ingest ...`
+
+[tool.uv]
+# uv's lock covers the verified interpreter range (canonical = 3.12, pinned in
+# .python-version). Core still pip-installs fine on 3.13 (requires-python >=3.10); this only
+# scopes uv lock/sync, where openvla's torch 2.2.0 (no cp313 wheels, no sdist) would make
+# the universal resolution unsatisfiable.
+environments = ["python_version >= '3.10' and python_version < '3.13'"]
+
+[dependency-groups]
+# uv installs the `dev` group by default -> `uv run pytest` works in a fresh clone.
+# (The [dev] extra below stays for pip users; same content.)
+dev = ["pytest>=8.0"]
 
 [tool.setuptools.packages.find]
 include = ["harness*"]

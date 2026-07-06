@@ -64,7 +64,7 @@ GPU or weights), CI + docs wired. Three seams:
   field guide.
 - **[Evaluation patterns](EVAL_PATTERNS.md)** — the nine-component grammar every VLA eval
   shares, the model × benchmark matrix, and the community lexicon.
-- **[Friction points](FRICTION_POINTS.md)** — 19 landmines between you and a reproducible VLA
+- **[Friction points](FRICTION_POINTS.md)** — 20 landmines between you and a reproducible VLA
   eval, symptom → fix.
 - **[Friction log](FRICTION_LOG.md)** — everything we hit, in the order we hit it, with
   commits as receipts.
