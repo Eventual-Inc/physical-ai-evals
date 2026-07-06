@@ -40,6 +40,24 @@ That single command builds the verified image (Python 3.12, one resolver pass), 
 checkpoint, runs the episodes on an A100, and writes schema-exact parquet to a shared volume.
 OpenVLA runs the same way via `harness/rollout/modal_app.py --policy-type openvla`.
 
+## Use it as a starter kit
+
+Beyond the shipped comparison, the repo is a template for evaluating **your** policy on a
+LIBERO-shaped benchmark: uv-managed, ruff-linted, ty-typechecked, CPU-testable (42 tests, no
+GPU or weights), CI + docs wired. Three seams:
+
+1. **Your policy** — subclass
+   [`Policy`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/harness/rollout/policy.py):
+   `reset(instruction)` + `act(obs) -> (7,) float32`. Both shipped policies are ~150-line
+   adapters behind this seam; the runner, writer, schema, and Modal apps never change.
+2. **Your benchmark** — anything *LIBERO-shaped* fits
+   [`run_episode`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/harness/rollout/libero_runner.py):
+   (task × init-state × seed) episode specs, RGB (+ wrist + proprio) in, 7-DoF EEF deltas out.
+3. **Your data** — one
+   [`Ingestor`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/harness/ingest/base.py)
+   producing `Episode`/`Step` lands your dataset in the same parquet schema as the rollouts —
+   six adapters in-tree to copy from.
+
 ## Where to go
 
 - **[The write-up](BLOG_POST.md)** — the full story: the 0% that wasn't, the comparison, the

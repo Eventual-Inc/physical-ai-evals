@@ -171,8 +171,32 @@ docs/EVAL_PATTERNS.md  the VLA evaluation grammar: 9 components, model x benchma
 notebooks/             regrasp_demo.py (failure forensics on synthetic data) + notebook outline
 NOTES.md               the reproducibility-gotchas log — every landmine, with fixes
 BACKLOG.md             explicitly-not-shipping list + idea parking lot
-tests/                 39 CPU-only tests: schema · ingest (all six) · policies · rollout loop
+tests/                 42 CPU-only tests: schema · ingest (all six) · policies · rollout loop
 ```
+
+## Use it as a starter kit
+
+This repo is a template, not just an artifact of one comparison: **uv**-managed,
+**ruff**-linted, **ty**-typechecked, CPU-testable (42 tests, no GPU or weights needed), with CI
+and a docs site already wired. To evaluate **your** policy on a LIBERO-shaped benchmark, there
+are exactly three seams:
+
+1. **Your policy** — subclass `Policy` ([`harness/rollout/policy.py`](harness/rollout/policy.py)):
+   `reset(instruction)` + `act(obs) -> (7,) float32`. Both shipped policies
+   ([`harness/policies/`](harness/policies/)) are ~150-line adapters behind this seam — the
+   runner, writer, schema, and Modal apps never change. The injection seams (`_policy=`,
+   `_vla=`) let you unit-test your adapter with fakes before a GPU ever spins up.
+2. **Your benchmark** — anything *LIBERO-shaped* fits
+   [`run_episode`](harness/rollout/libero_runner.py): episodes enumerated as
+   (task × init-state × seed) specs, observations = RGB (+ wrist + proprio), actions = 7-DoF
+   EEF deltas. Swap `make_env` and the suite constants in
+   [`harness/config.py`](harness/config.py).
+3. **Your data** — write one `Ingestor` producing `Episode`/`Step`
+   ([`harness/ingest/base.py`](harness/ingest/base.py)) and your dataset lands in the same
+   parquet schema as the rollouts. Six adapters in-tree to copy from.
+
+For GPU scale, copy either Modal app ([`harness/rollout/modal_app.py`](harness/rollout/modal_app.py))
+and swap the pip pins — the resumable-sweep and deploy/spawn machinery is policy-agnostic.
 
 ## The three deliverables
 
