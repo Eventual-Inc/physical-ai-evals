@@ -3,7 +3,7 @@
 **19 landmines between you and a reproducible VLA eval.** Symptom → fix, grouped by when it
 bites. This is the quick-reference layer; the chronological story is
 [`FRICTION_LOG.md`](FRICTION_LOG.md) and the deep per-topic detail is
-[`../NOTES.md`](../NOTES.md).
+[`NOTES.md`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/NOTES.md).
 
 ## Build & environment (bites at image build / first import — loudly)
 

@@ -117,7 +117,8 @@ class LiberoRollout:
 
         out: list[dict] = []
         for suite, task_id, isid, seed in zip(
-            suites.to_pylist(), task_ids.to_pylist(), init_state_ids.to_pylist(), seeds.to_pylist()
+            suites.to_pylist(), task_ids.to_pylist(), init_state_ids.to_pylist(),
+            seeds.to_pylist(), strict=True,
         ):
             env, task = self._env(suite, int(task_id))
             init_states = _libero_init_states(suite, int(task_id))

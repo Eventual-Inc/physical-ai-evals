@@ -21,7 +21,6 @@ from harness.ingest.droid import DroidIngestor, parse_trajectory_h5
 from harness.ingest.hdf5 import Hdf5Ingestor
 from harness.writer import assert_emits_schema, write_episode, write_rows
 
-
 # --------------------------------------------------------------------------- fixtures
 
 def _write_demo(parent, name, *, n, gripper=0.5, native=False,

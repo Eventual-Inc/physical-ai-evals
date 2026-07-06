@@ -3,7 +3,7 @@
 The chronological record: each entry is one thing that actually broke (or silently lied),
 when, what it looked like, and what fixed it. The condensed symptom→fix reference is
 [`FRICTION_POINTS.md`](FRICTION_POINTS.md); deep per-topic detail lives in
-[`../NOTES.md`](../NOTES.md). Commits are receipts.
+[`NOTES.md`](https://github.com/Eventual-Inc/VLA-JEPA/blob/main/NOTES.md). Commits are receipts.
 
 Convention: **[where it bit]** symptom → root cause → fix.
 

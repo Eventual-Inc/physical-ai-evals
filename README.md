@@ -49,7 +49,7 @@ per-benchmark Docker, this buys reproducibility with one process you can read to
 pip install -e ".[dev]"
 # daft.datasets.lerobot + Hdf5File are on Daft nightly until the next release:
 pip install daft --pre --extra-index-url https://nightly.daft.ai
-pytest                          # 39 tests, CPU-only, no weights/sim needed
+pytest                          # 42 tests, CPU-only, no weights/sim needed
 
 harness rollout --policy vla_jepa --suite libero_spatial --task-ids 0 --episodes 2 --dry-run
 harness ingest  --source hdf5 --input demos/libero_goal.hdf5 --out data/rollouts --dry-run
@@ -74,10 +74,19 @@ pip install -e ".[embed]"          # sentence-transformers for the clustering pa
 
 Rollouts run as a `@daft.cls` UDF on Modal GPUs — one episode spec per row, per-step
 trajectories written to a parquet glob. Two apps (both Python 3.12) because the transformers
-pins conflict (OpenVLA ==4.40.1; VLA-JEPA's lerobot stack 5.4–5.6):
+pins conflict (OpenVLA ==4.40.1; VLA-JEPA's lerobot stack 5.4–5.6).
+
+One-time setup (auth + the HF token secret; volumes auto-create on first run):
 
 ```bash
-pip install -e ".[modal]"
+pip install -e ".[dev,modal]"
+modal token new
+modal secret create hf-token HF_TOKEN=<your-hf-token>
+```
+
+Then one command per sweep:
+
+```bash
 
 # OpenVLA (image verified: builds + LIBERO imports green)
 modal run harness/rollout/modal_app.py --policy-type openvla --suites libero_spatial --task-ids 0 --episodes 2

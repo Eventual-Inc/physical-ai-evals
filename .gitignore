@@ -52,3 +52,6 @@ tfds/
 
 # --- conductor (already gitignored by conductor, listed for clarity) ---
 .context/
+
+# mkdocs build output
+site/

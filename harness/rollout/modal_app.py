@@ -205,7 +205,10 @@ def _enumerate_specs(suites: list[str], task_ids: list[int] | None, episodes: in
                 ):
                     skipped += 1
                     continue
-                s_col.append(suite); t_col.append(int(task_id)); i_col.append(init_state_id); seed_col.append(seed)
+                s_col.append(suite)
+                t_col.append(int(task_id))
+                i_col.append(init_state_id)
+                seed_col.append(seed)
     if skipped:
         print(f"[resume] skipping {skipped} episodes already on the volume")
     return s_col, t_col, i_col, seed_col

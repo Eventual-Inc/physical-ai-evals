@@ -82,3 +82,18 @@ include = ["harness*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["notebooks"]  # py:percent notebooks tolerate looser style
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]  # pytest.importorskip legitimately precedes imports
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+  "E501",  # long lines in docstrings/comments carry receipts; format handles code lines
+  "E712",  # `success == False` is a Daft expression idiom, not a bool comparison
+]

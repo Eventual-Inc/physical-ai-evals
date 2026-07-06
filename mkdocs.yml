@@ -1,0 +1,54 @@
+site_name: vla_jepa_harness
+site_description: >-
+  A modern, unified Python environment for running robotics model benchmarks —
+  VLA policies on LIBERO with queryable failure forensics.
+site_url: https://eventual-inc.github.io/VLA-JEPA/
+repo_url: https://github.com/Eventual-Inc/VLA-JEPA
+repo_name: Eventual-Inc/VLA-JEPA
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.details
+
+nav:
+  - Home: index.md
+  - The write-up: BLOG_POST.md
+  - Evaluation patterns: EVAL_PATTERNS.md
+  - Friction:
+      - Friction points: FRICTION_POINTS.md
+      - Friction log: FRICTION_LOG.md
+
+exclude_docs: |
+  BLOG_OUTLINE.md

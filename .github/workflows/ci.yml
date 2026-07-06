@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - name: ruff
+        run: uvx ruff check harness/ tests/
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"   # the repo's canonical interpreter (core supports 3.10-3.13)
+      - name: Install (core + hdf5 ingest + CPU torch + nightly daft)
+        run: |
+          uv venv --python 3.12
+          uv pip install -e ".[dev,ingest_hdf5]"
+          # daft.datasets.{lerobot,droid} ride nightly until the release after 0.7.16
+          uv pip install --prerelease=allow --extra-index-url https://nightly.daft.ai --upgrade daft
+          # CPU wheel keeps the policy-adapter tests real without a GPU
+          uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: pytest
+        run: uv run pytest tests/ -q
+
+  docs-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - name: mkdocs build --strict
+        run: uvx --with mkdocs-material mkdocs build --strict

@@ -22,7 +22,6 @@ from harness.ingest.droid import DroidIngestor
 from harness.ingest.lerobot import LeRobotIngestor
 from harness.writer import assert_emits_schema, write_rows
 
-
 # --------------------------------------------------------------------- fixtures
 
 def _write_lerobot_v3(root, *, codebase_version="v3.0"):
