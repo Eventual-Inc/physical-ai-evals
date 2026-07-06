@@ -201,6 +201,8 @@ class RolloutWriter:
     # --- helpers ---
 
     def _slug(self) -> str:
+        if self._meta is None:
+            raise RuntimeError("no episode in progress — call begin_episode first")
         return self._meta["episode_id"].replace("/", "__")
 
     def _write_png(self, frame, slug: str, step_idx: int, role: str) -> str:

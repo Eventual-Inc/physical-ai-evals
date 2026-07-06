@@ -32,6 +32,12 @@ jobs:
           uv pip install --prerelease=allow --extra-index-url https://nightly.daft.ai --upgrade daft
           # CPU wheel keeps the policy-adapter tests real without a GPU
           uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+      # ty runs here (not in lint) so numpy/daft/torch resolve from the real venv.
+      # Pinned: ty is pre-1.0 and a version bump can add diagnostics unrelated to the diff.
+      # --exit-zero-on-warning: unresolved-import is DOWNGRADED to warn in pyproject (heavy
+      # deps are lazy optional imports by design) — warnings stay visible, errors fail.
+      - name: ty (type check)
+        run: uvx ty@0.0.56 check harness/ --exit-zero-on-warning
       - name: pytest
         run: uv run pytest tests/ -q
 

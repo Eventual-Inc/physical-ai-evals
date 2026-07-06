@@ -97,3 +97,8 @@ ignore = [
   "E501",  # long lines in docstrings/comments carry receipts; format handles code lines
   "E712",  # `success == False` is a Daft expression idiom, not a bool comparison
 ]
+
+[tool.ty.rules]
+# Heavy deps (libero/lerobot/transformers/robosuite/modal) are LAZY optional imports by
+# design -- absent from the dev env. Warn, don't fail; real typos still surface in review.
+unresolved-import = "warn"

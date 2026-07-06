@@ -28,6 +28,8 @@ lerobot/GPU/weights are needed for CPU verification.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 from harness.rollout.policy import Observation, Policy
@@ -52,6 +54,10 @@ class VLAJEPAPolicy(Policy):
         self.policy_path = str(policy_path or DEFAULT_MODEL_ID)
         self.device = device
         self._instruction = ""
+        # Backends are dynamically loaded heavy objects (or injected fakes) -> typed Any.
+        self._policy: Any = None
+        self._pre: Any = None
+        self._post: Any = None
         if _policy is not None:  # test seam: no lerobot / GPU / weights needed
             self._policy = _policy
             self._pre = _preprocessor if _preprocessor is not None else (lambda b: b)

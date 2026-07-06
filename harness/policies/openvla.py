@@ -17,6 +17,8 @@ this module is cheap and the adapter is unit-testable with an injected backend (
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 from harness.rollout.policy import Observation, Policy
@@ -111,6 +113,9 @@ class OpenVLAPolicy(Policy):
         self.attn_impl = attn_impl
         self.center_crop = center_crop
         self._instruction = ""
+        # Backends are dynamically loaded heavy objects (or injected fakes) -> typed Any.
+        self.vla: Any = None
+        self.processor: Any = None
         if _vla is not None or _processor is not None:  # test/injection seam
             self.vla, self.processor = _vla, _processor
         else:
