@@ -1,0 +1,1103 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The starter kit for evaluating physical-AI policies on LIBERO-shaped benchmarks — reproducible VLA rollouts with queryable failure forensics.">
+      
+      
+      
+        <link rel="canonical" href="https://eventual-inc.github.io/physical-ai-evals/EVAL_PATTERNS/">
+      
+      
+        <link rel="prev" href="../BLOG_POST/">
+      
+      
+        <link rel="next" href="../FRICTION_POINTS/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Evaluation patterns - physical-ai-evals</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#the-vla-evaluation-grammar" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="physical-ai-evals" class="md-header__button md-logo" aria-label="physical-ai-evals" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            physical-ai-evals
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Evaluation patterns
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Eventual-Inc/physical-ai-evals" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Eventual-Inc/physical-ai-evals
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="physical-ai-evals" class="md-nav__button md-logo" aria-label="physical-ai-evals" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    physical-ai-evals
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Eventual-Inc/physical-ai-evals" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Eventual-Inc/physical-ai-evals
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../BLOG_POST/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The write-up
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evaluation patterns
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evaluation patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-the-nine-components-every-framework-has-all-nine-only-the-names-differ" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. The nine components (every framework has all nine; only the names differ)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-one-to-one-translations-0-openvla-vla-jepa-libero-aloha-sim-droid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. One-to-one translations: {π0, OpenVLA, VLA-JEPA} × {LIBERO, ALOHA-sim, DROID}
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. One-to-one translations: {π0, OpenVLA, VLA-JEPA} × {LIBERO, ALOHA-sim, DROID}">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#0-libero" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        π0 × LIBERO
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#0-aloha-sim" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        π0 × ALOHA-sim
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#0-droid-real-rig-documented-for-completeness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        π0 × DROID (real rig; documented for completeness)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openvla-libero-implemented-in-this-repo-harnesspoliciesopenvlapy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenVLA × LIBERO (implemented in this repo — harness/policies/openvla.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vla-jepa-libero-implemented-harnesspoliciesvla_jepapy-route-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VLA-JEPA × LIBERO (implemented — harness/policies/vla_jepa.py = route 1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-terminology-lexicon-use-these-words" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Terminology lexicon (use these words)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-where-this-repo-maps-on" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Where this repo maps on
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-our-stance-in-process-by-default-no-policy-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Our stance: in-process by default, no policy server
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Friction
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Friction
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FRICTION_POINTS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Friction points
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FRICTION_LOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Friction log
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-the-nine-components-every-framework-has-all-nine-only-the-names-differ" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. The nine components (every framework has all nine; only the names differ)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-one-to-one-translations-0-openvla-vla-jepa-libero-aloha-sim-droid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. One-to-one translations: {π0, OpenVLA, VLA-JEPA} × {LIBERO, ALOHA-sim, DROID}
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. One-to-one translations: {π0, OpenVLA, VLA-JEPA} × {LIBERO, ALOHA-sim, DROID}">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#0-libero" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        π0 × LIBERO
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#0-aloha-sim" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        π0 × ALOHA-sim
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#0-droid-real-rig-documented-for-completeness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        π0 × DROID (real rig; documented for completeness)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openvla-libero-implemented-in-this-repo-harnesspoliciesopenvlapy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenVLA × LIBERO (implemented in this repo — harness/policies/openvla.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vla-jepa-libero-implemented-harnesspoliciesvla_jepapy-route-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VLA-JEPA × LIBERO (implemented — harness/policies/vla_jepa.py = route 1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-terminology-lexicon-use-these-words" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Terminology lexicon (use these words)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-where-this-repo-maps-on" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Where this repo maps on
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-our-stance-in-process-by-default-no-policy-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Our stance: in-process by default, no policy server
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/Eventual-Inc/physical-ai-evals/edit/main/docs/EVAL_PATTERNS.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="the-vla-evaluation-grammar">The VLA evaluation grammar<a class="headerlink" href="#the-vla-evaluation-grammar" title="Permanent link">&para;</a></h1>
+<p>How the research community actually evaluates VLA policies on benchmarks — the shared
+pattern, the one-to-one translations per (model × benchmark), and the canonical terminology.
+Extracted 2026-07-01 from the real eval entry points of <strong>openpi</strong>, <strong>starVLA</strong> (VLA-JEPA's
+base), <strong>openvla</strong>, <strong>lerobot</strong>, and <strong>allenai/vla-evaluation-harness</strong>, verified against
+files, not memory. This is the spec our harness aligns to.</p>
+<h2 id="1-the-nine-components-every-framework-has-all-nine-only-the-names-differ">1. The nine components (every framework has all nine; only the names differ)<a class="headerlink" href="#1-the-nine-components-every-framework-has-all-nine-only-the-names-differ" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>openpi</th>
+<th>starVLA</th>
+<th>OpenVLA</th>
+<th>lerobot</th>
+<th>vla-eval (allenai)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Checkpoint</td>
+<td>train-config name + ckpt dir</td>
+<td><code>--ckpt_path</code> (HF id/dir)</td>
+<td><code>pretrained_checkpoint</code></td>
+<td><code>--policy.path</code></td>
+<td><code>checkpoint</code>/<code>config_name</code> (YAML)</td>
+</tr>
+<tr>
+<td>Normalization stats</td>
+<td>"norm stats" <code>assets/&lt;asset_id&gt;/norm_stats.json</code></td>
+<td><code>dataset_statistics.json</code> + server-side <code>PolicyNormProcessor</code>; <strong><code>unnorm_key</code></strong></td>
+<td><strong><code>unnorm_key</code></strong> into <code>model.norm_stats</code> (baked in ckpt)</td>
+<td>dataset <code>stats</code> + <code>Normalizer/UnnormalizerProcessorStep</code></td>
+<td><code>unnorm_key</code>/<code>unnorm_type</code> passthrough</td>
+</tr>
+<tr>
+<td>Policy wrapper</td>
+<td><code>Policy</code> + <code>LiberoInputs/Outputs</code></td>
+<td><code>PolicyServerWrapper</code> + <code>model2{bench}_client.py</code></td>
+<td><code>get_model</code>/<code>get_vla_action</code></td>
+<td><code>PreTrainedPolicy</code></td>
+<td><code>ModelServer.predict()</code></td>
+</tr>
+<tr>
+<td>Serving split</td>
+<td><strong>policy server</strong> (websocket+msgpack, handshake metadata)</td>
+<td>same pattern, port 10093</td>
+<td><strong>in-process</strong></td>
+<td>in-process (<code>lerobot-eval</code>)</td>
+<td>mandatory <code>vla-eval serve</code> + Docker benchmark</td>
+</tr>
+<tr>
+<td>Env construction</td>
+<td>LIBERO <code>benchmark_dict[suite]()</code>; <code>gymnasium.make</code></td>
+<td>identical LIBERO code</td>
+<td>identical (the <strong>origin</strong>)</td>
+<td><code>EnvConfig</code> registry → <code>make_env</code></td>
+<td><code>Benchmark.get_tasks()</code></td>
+</tr>
+<tr>
+<td>Chunk handling</td>
+<td><strong><code>action_horizon</code></strong>, <code>ActionChunkBroker</code>, <code>replan_steps</code> / <code>open_loop_horizon</code></td>
+<td><strong><code>action_chunk_size</code></strong>, <code>AdaptiveEnsembler</code></td>
+<td>none (chunk of 1)</td>
+<td><strong><code>chunk_size</code></strong> vs <strong><code>n_action_steps</code></strong></td>
+<td><code>chunk_size</code> + <code>action_ensemble</code> (newest/average/ema)</td>
+</tr>
+<tr>
+<td>Success criterion</td>
+<td>env <code>done</code></td>
+<td>same</td>
+<td>same</td>
+<td><code>is_success</code> terminal info</td>
+<td><code>EpisodeResult = {"success": bool}</code></td>
+</tr>
+<tr>
+<td>Trials × seeds</td>
+<td>50 trials/task, <strong>seed=7</strong>, <code>init_states[episode_idx]</code>, <code>num_steps_wait=10</code></td>
+<td>identical</td>
+<td>identical (origin)</td>
+<td><code>eval.n_episodes</code>, seed=1000</td>
+<td><code>episodes_per_task=50</code>, <code>params.seed=7</code></td>
+</tr>
+<tr>
+<td>Recording</td>
+<td>mp4/episode + console SR</td>
+<td>mp4 + logs</td>
+<td>wandb + mp4</td>
+<td>videos + JSON</td>
+<td>SQLite keyed on <code>eval_id</code>, shard merge</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The invariant that dominates everything</strong> (stated loudest by starVLA's client-side
+<code>[TRAIN/TEST CONSISTENCY CHECK]</code> banner): <em>eval-time observation construction must byte-match
+training-time preprocessing</em> — image size/rotation/crop, camera count <strong>and order</strong>, state
+on/off and dim order, unnorm stats, chunk size. Mismatches never raise; they surface as a
+mysteriously low success rate. This is the pain the per-step rollout schema exists to make
+debuggable.</p>
+<p>Canonical LIBERO protocol constants (OpenVLA-origin, inherited verbatim by openpi/starVLA/vla-eval):
+<strong>50 trials/task · seed=7 · <code>num_steps_wait=10</code> dummy steps · 256px render, 180° rotation,
+pad-resize 224 · max_steps: spatial 220 / object 280 / goal 300 / libero_10 520 / libero_90 400</strong>
+(we use 250 for spatial as the non-truncating cross-policy cap — VLA-JEPA's published cap; documented deviation).</p>
+<h2 id="2-one-to-one-translations-0-openvla-vla-jepa-libero-aloha-sim-droid">2. One-to-one translations: {π0, OpenVLA, VLA-JEPA} × {LIBERO, ALOHA-sim, DROID}<a class="headerlink" href="#2-one-to-one-translations-0-openvla-vla-jepa-libero-aloha-sim-droid" title="Permanent link">&para;</a></h2>
+<p><strong>Structural fact first: DROID has no simulator.</strong> DROID eval = the physical Franka rig
+(<code>droid.robot_env.RobotEnv</code>, success judged by a human) or community alternatives (RoboArena
+distributed real-robot eval; nascent real-to-sim efforts). SimplerEnv covers Google-Robot +
+WidowX/Bridge only — not DROID. <strong>DROID's role in a modern stack is data (ingest, fine-tune,
+analyze), not benchmark.</strong> ALOHA's sim story is <code>gym-aloha</code> (AlohaTransferCube/Insertion).</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>LIBERO (robosuite/MuJoCo)</th>
+<th>ALOHA-sim (gym-aloha)</th>
+<th>DROID</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>π0/π0.5 (openpi)</strong></td>
+<td>✅ <code>pi05_libero</code> (SOTA)</td>
+<td>✅ <code>pi0_aloha_sim</code></td>
+<td>⚠️ real-robot only (<code>pi05_droid</code> et al.)</td>
+</tr>
+<tr>
+<td><strong>OpenVLA</strong></td>
+<td>✅ <code>openvla-7b-finetuned-libero-*</code></td>
+<td>❌ can't express 14-dim bimanual (OFT territory)</td>
+<td>⚠️ no ckpt; base evals via SimplerEnv proxies</td>
+</tr>
+<tr>
+<td><strong>VLA-JEPA (starVLA)</strong></td>
+<td>✅ three routes (below)</td>
+<td>❌ no ckpt, no starVLA ALOHA bench</td>
+<td>❌ no sim, no ckpt</td>
+</tr>
+</tbody>
+</table>
+<h3 id="0-libero">π0 × LIBERO<a class="headerlink" href="#0-libero" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Serve: <code>uv run scripts/serve_policy.py --env=LIBERO policy:checkpoint --policy.config=pi05_libero --policy.dir=gs://openpi-assets/checkpoints/pi05_libero</code></li>
+<li>Client obs dict: <code>observation/image</code> (agentview 256 → rot180 → pad-resize 224), <code>observation/wrist_image</code>, <code>observation/state</code> = concat(eef_pos, quat2axisangle(eef_quat), gripper_qpos) → <strong>8-dim</strong>, <code>prompt</code></li>
+<li>Action: 7-dim delta-EEF+gripper; chunk <code>action_horizon=10</code>, execute <strong><code>replan_steps=5</code></strong></li>
+<li>Env: LIBERO OffScreenRenderEnv, protocol constants above</li>
+</ul>
+<h3 id="0-aloha-sim">π0 × ALOHA-sim<a class="headerlink" href="#0-aloha-sim" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Serve: <code>serve_policy.py --env=ALOHA_SIM</code> (ckpt <code>pi0_aloha_sim</code>)</li>
+<li>Env: <code>gymnasium.make("gym_aloha/AlohaTransferCube-v0", obs_type="pixels_agent_pos")</code></li>
+<li>Obs: <code>{"state": 14-dim joints, "images": {"cam_high": 224 CHW}}</code>; action 14-dim joints, 50 Hz, <code>ActionChunkBroker(action_horizon=10)</code></li>
+</ul>
+<h3 id="0-droid-real-rig-documented-for-completeness">π0 × DROID (real rig; documented for completeness)<a class="headerlink" href="#0-droid-real-rig-documented-for-completeness" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>RobotEnv(action_space="joint_velocity", gripper_action_space="position")</code>, 15 Hz</li>
+<li>Obs: exterior ZED + wrist cam (pad-resize 224) + <code>joint_position</code>(7) + <code>gripper_position</code>(1)</li>
+<li>Action: 8-dim (7 joint-velocity + gripper pos); <code>open_loop_horizon=8</code>; norm-stats asset_id <code>droid</code></li>
+</ul>
+<h3 id="openvla-libero-implemented-in-this-repo-harnesspoliciesopenvlapy">OpenVLA × LIBERO  <em>(implemented in this repo — <code>harness/policies/openvla.py</code>)</em><a class="headerlink" href="#openvla-libero-implemented-in-this-repo-harnesspoliciesopenvlapy" title="Permanent link">&para;</a></h3>
+<ul>
+<li>In-process: <code>AutoModelForVision2Seq</code> + <code>predict_action(unnorm_key=&lt;suite&gt;[_no_noops], do_sample=False)</code></li>
+<li>Single 224 image (rot180, center-crop area 0.9 if trained w/ augs), <strong>no proprio, no chunking</strong></li>
+<li>Gripper: normalize [0,1]→[-1,1] then <strong>invert</strong> (RLDS 0=close vs env -1=open)</li>
+</ul>
+<h3 id="vla-jepa-libero-implemented-harnesspoliciesvla_jepapy-route-1">VLA-JEPA × LIBERO  <em>(implemented — <code>harness/policies/vla_jepa.py</code> = route 1)</em><a class="headerlink" href="#vla-jepa-libero-implemented-harnesspoliciesvla_jepapy-route-1" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>starVLA policy server</strong> (the official repo path): <code>deployment/model_server/server_policy.py</code> + websocket client; server-side unnorm via <code>dataset_statistics.json</code>; <code>{"image": [agentview, wrist], "lang": str}</code> @224; chunk from ckpt config; DDIM 10 steps</li>
+<li><strong>allenai vla-eval</strong>: <code>configs/model_servers/starvla/*.yaml</code> + LIBERO benchmark configs</li>
+<li><strong>lerobot</strong> now ships <code>policies/vla_jepa/</code> (port of ginwind/VLA-JEPA; <code>chunk_size=7</code>) + a <code>libero</code> env type → <code>lerobot-eval --env.type=libero</code> with <strong>no starVLA server infra</strong></li>
+</ol>
+<h2 id="3-terminology-lexicon-use-these-words">3. Terminology lexicon (use these words)<a class="headerlink" href="#3-terminology-lexicon-use-these-words" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>episode</strong>: the universal eval unit. <strong>rollout</strong> = the act of running one. <strong>trajectory</strong> = a <em>dataset</em> record (e.g. DROID <code>trajectory.h5</code>). Don't interchange.</li>
+<li><strong>benchmark → task suite → task → episode/trial</strong>: the hierarchy (vla-eval formalizes it; LIBERO's own code confusingly calls suites "benchmarks").</li>
+<li><strong>success rate (SR)</strong>: per-task, then aggregate. CALVIN uses avg rollout length instead.</li>
+<li><strong>trials</strong>: <code>num_trials_per_task</code> (=<code>episodes_per_task</code>); canonical 50.</li>
+<li><strong>action chunk</strong>: the predicted action sequence. Predicted length: <code>action_horizon</code> (openpi) / <code>action_chunk_size</code> (starVLA) / <code>chunk_size</code> (lerobot). Executed-before-replan: <code>replan_steps</code> or <code>open_loop_horizon</code> (openpi) / <code>n_action_steps</code> (lerobot). Overloaded even within openpi — always disambiguate predicted vs executed.</li>
+<li><strong>proprio(ceptive) state</strong>: <code>observation/state</code> (openpi) / <code>agent_pos</code> (gym) / <code>observation.state</code> (lerobot). OpenVLA takes none.</li>
+<li><strong>embodiment</strong>: robot platform + action-space identity (openpi encodes as norm-stats <code>asset_id</code>: <code>franka</code>, <code>trossen</code>, <code>droid</code>, ...).</li>
+<li><strong>unnorm_key / dataset statistics</strong>: OpenVLA coined <code>unnorm_key</code>; starVLA + vla-eval adopted verbatim; openpi says "norm stats".</li>
+<li><strong>policy server / remote inference</strong>: openpi's coinage; websocket+msgpack+handshake-metadata is the de-facto standard (starVLA port 10093; vla-eval mandates the split).</li>
+<li><strong>init states</strong>: LIBERO's fixed per-task initial states, indexed by episode for reproducibility.</li>
+<li><strong>language instruction</strong>: <code>prompt</code> (openpi) / <code>lang</code> (starVLA) / <code>task_description</code> (vla-eval, SimplerEnv) / <code>task</code> (lerobot).</li>
+<li><strong>closed-loop eval</strong> vs vla-eval's <strong>"realtime"/Sim2Live</strong> (env keeps moving during inference latency).</li>
+<li><strong>SimplerEnv</strong>: "visual matching" and "variant aggregation" — the two named real-to-sim setups.</li>
+</ul>
+<h2 id="4-where-this-repo-maps-on">4. Where this repo maps on<a class="headerlink" href="#4-where-this-repo-maps-on" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Grammar component</th>
+<th>Here</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Policy wrapper</td>
+<td><code>harness/rollout/policy.py::Policy</code> (reset/act)</td>
+</tr>
+<tr>
+<td>In-process route</td>
+<td><code>policies/openvla.py</code></td>
+</tr>
+<tr>
+<td>Policy-server route</td>
+<td><code>policies/vla_jepa.py</code> (websocket client, server-side style unnorm)</td>
+</tr>
+<tr>
+<td>Env construction + protocol</td>
+<td><code>rollout/libero_runner.py</code> + <code>config.py</code> (canonical constants)</td>
+</tr>
+<tr>
+<td>Chunk handling</td>
+<td>inside each policy adapter (one action out per <code>act</code>)</td>
+</tr>
+<tr>
+<td>Recording</td>
+<td><code>writer.RolloutWriter</code> → per-step <code>ROLLOUT_SCHEMA</code> parquet (+frames/mp4)</td>
+</tr>
+<tr>
+<td>Trials × seeds</td>
+<td><code>RolloutConfig</code> (50 trials, seed 7, <code>init_state_id</code> in the episode key)</td>
+</tr>
+</tbody>
+</table>
+<p>What the per-step parquet adds that none of the five frameworks record: the <strong>failure
+forensics layer</strong> — every step's action/gripper/eef/object state queryable after the fact, so
+"SR dropped" decomposes into <em>policy</em> failures (re-grasp, drop) vs <em>harness</em> failures (bad
+unnorm ⇒ saturated actions; bad init state ⇒ object teleport; preprocessing drift) instead of
+a silent scalar.</p>
+<h2 id="5-our-stance-in-process-by-default-no-policy-server">5. Our stance: in-process by default, no policy server<a class="headerlink" href="#5-our-stance-in-process-by-default-no-policy-server" title="Permanent link">&para;</a></h2>
+<p>The ecosystem's websocket "policy server" solves three problems we don't have:
+1. <strong>Real-robot network boundary</strong> (openpi's origin) — out of scope; our evals are sim.
+2. <strong>Dependency isolation</strong> (starVLA's reason: model env vs benchmark env) — disproven for our
+   cases: our A100 run executed robosuite + MuJoCo EGL + torch 2.2 + a 7B VLA in ONE process
+   (see NOTES.md), and lerobot ships <code>vla_jepa</code> + a <code>libero</code> env in one package.
+3. <strong>Batched serving at scale</strong> (vla-eval's shard×server design) — <code>@daft.cls(gpus=1.0)</code> on a
+   Modal GPU <em>is</em> the model server: Daft does placement/concurrency/batching over episode-spec
+   rows; Modal does GPU provisioning. The container boundary replaces the socket.</p>
+<p>For <strong>Genesis</strong> a socket is actively harmful: its native mode is GPU-parallel batched envs
+sharing the CUDA context with the policy — observations never leave the device. In-process is
+the only pattern that preserves that (and enables a future batched runner: one UDF call = B
+episodes stepping in lockstep in one Genesis scene).</p>
+<p><strong>The <code>Policy</code> ABC is the seam.</strong> In-process adapters are the default route for every model we
+target: OpenVLA (HF <code>predict_action</code>), VLA-JEPA (the lerobot <code>policies/vla_jepa</code> port), π0
+(openpi's <code>policy_config.create_trained_policy(...).infer(obs)</code> — the server is just a wrap
+around this). The websocket <strong>client</strong> adapter is retained as an escape hatch: for models whose
+env genuinely cannot co-install, and to evaluate anything already served by an openpi/starVLA
+server without porting it. Envs sit behind the runner's gym-shaped seam
+(<code>set_init_state/step/check_success/close</code>) — MuJoCo/robosuite today, Genesis as a second
+backend later.</p>
+<p>Positioning vs allenai/vla-eval: they buy <em>generality</em> with a mandatory network boundary and
+per-benchmark Docker; we buy <em>reproducibility</em> with one opinionated process — Python, Daft,
+Modal, PyTorch, MuJoCo/Genesis — where the whole evaluation is a DataFrame operation. Their
+protocol stays reachable through the adapter if we ever want to sit behind their harness.
+Trade named honestly: a sim segfault kills the worker, not an env client — absorbed by
+one-parquet-part-per-episode (crash loses nothing) + Daft/Modal row-level retries.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,974 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The starter kit for evaluating physical-AI policies on LIBERO-shaped benchmarks — reproducible VLA rollouts with queryable failure forensics.">
+      
+      
+      
+        <link rel="canonical" href="https://eventual-inc.github.io/physical-ai-evals/BLOG_POST/">
+      
+      
+        <link rel="prev" href="..">
+      
+      
+        <link rel="next" href="../EVAL_PATTERNS/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>The write-up - physical-ai-evals</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#operational-reproducibility-benchmarking-modern-vlas-in-one-python-environment" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="physical-ai-evals" class="md-header__button md-logo" aria-label="physical-ai-evals" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            physical-ai-evals
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              The write-up
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Eventual-Inc/physical-ai-evals" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Eventual-Inc/physical-ai-evals
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="physical-ai-evals" class="md-nav__button md-logo" aria-label="physical-ai-evals" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    physical-ai-evals
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Eventual-Inc/physical-ai-evals" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Eventual-Inc/physical-ai-evals
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The write-up
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The write-up
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-receipt-our-vla-scored-0-and-the-model-was-innocent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The receipt: our VLA scored 0% and the model was innocent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#this-is-everyones-tuesday" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        This is everyone's Tuesday
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#so-we-made-the-eval-explain-itself" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        So we made the eval explain itself
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-comparison-actually-found" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the comparison actually found
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-field-guide-20-landmines-so-you-dont-step-on-them" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The field guide: 20 landmines, so you don't step on them
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-it-on-your-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run it on your data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-direct-ask-if-you-do-this-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A direct ask, if you do this work
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../EVAL_PATTERNS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evaluation patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Friction
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Friction
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FRICTION_POINTS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Friction points
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FRICTION_LOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Friction log
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-receipt-our-vla-scored-0-and-the-model-was-innocent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The receipt: our VLA scored 0% and the model was innocent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#this-is-everyones-tuesday" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        This is everyone's Tuesday
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#so-we-made-the-eval-explain-itself" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        So we made the eval explain itself
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-comparison-actually-found" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the comparison actually found
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-field-guide-20-landmines-so-you-dont-step-on-them" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The field guide: 20 landmines, so you don't step on them
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-it-on-your-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run it on your data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-direct-ask-if-you-do-this-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A direct ask, if you do this work
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/Eventual-Inc/physical-ai-evals/edit/main/docs/BLOG_POST.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="operational-reproducibility-benchmarking-modern-vlas-in-one-python-environment">Operational reproducibility: benchmarking modern VLAs in one Python environment<a class="headerlink" href="#operational-reproducibility-benchmarking-modern-vlas-in-one-python-environment" title="Permanent link">&para;</a></h1>
+<p><em>Running VLA-JEPA and OpenVLA on LIBERO, on rented GPUs, in one modern Python stack — and
+finding the bugs with DataFrame queries instead of afternoons of scrubbing video.</em></p>
+<!-- Title alternates (author's pick): "Our VLA scored 0% and the model was innocent" ·
+     "You don't need three conda envs to eval a VLA"
+     FIGURES: hero trace + failure-mix bar are baked in notebooks/failure_modes.ipynb;
+     the gripper-query terminal shot is reproducible from the parquet. -->
+
+<hr />
+<p>Python's promise is that it can act as a high-level interface across many performance stacks:
+distributed computing, neural network training, simulation, visualization, robotics, and more.
+In practice, Python packaging often becomes one of the biggest sources of friction, especially
+for developers working inside narrow research ecosystems.</p>
+<p>This problem is particularly visible in academic AI and robotics repositories. Implementations
+of new papers, model architectures, and benchmarks frequently ship with strict dependency
+pins, outdated libraries, and fragile environment assumptions. Those choices may make sense at
+publication time, but they often create unnecessary complexity for anyone trying to integrate
+the work into a broader system. Industry practitioners do not usually have the luxury of
+treating each paper repository as its own isolated world. They need coherent stacks that can
+be deployed, scaled, tested, and maintained.</p>
+<p>I spent several weekends investigating whether the dependency constraints around VLA, JEPA,
+LIBERO, MuJoCo, and robosuite were genuinely necessary, or whether they were mostly artifacts
+of how the original research code was packaged. My conclusion is that much of the pain is
+avoidable. I was able to run VLA and JEPA models on LIBERO, with MuJoCo and robosuite, inside
+a single modern Python environment using current tooling and dependencies. The same
+environment also scales cleanly on Modal.</p>
+<p>That matters because the reproducibility problem in AI is not only about random seeds, missing
+checkpoints, or insufficient documentation. It is also about developer workflow. When research
+code depends on brittle, outdated, or mutually incompatible environments, it becomes harder to
+compare methods, extend baselines, reproduce benchmarks, and transition promising work into
+real systems.</p>
+<p>Modern AI models are now strong enough to assist with refactoring, debugging, dependency
+upgrades, and regression comparison. Given that, it is increasingly difficult to justify
+publishing repositories that rely on unnecessarily strict, stale dependency pins without
+providing a maintainable path forward. Researchers should still preserve exact environments
+for archival reproducibility, but that should not preclude offering a modern, integrated
+environment for actual development.</p>
+<p>I created this repository to make it easier to run benchmarks on new robotics models.
+Vision-language-action models, world models, and action-conditioned models are being explored
+across robotic manipulation, humanoids, autonomous vehicles, and other physical AI systems.
+The goal of this project is to give researchers and practitioners a coherent toolset for
+evaluating these systems without inheriting the full fragmentation cost of the current Python
+packaging ecosystem.</p>
+<p>What follows is the receipt: what the consolidation actually took, what it found, and why
+"one environment" is only half the story — because once the environment is honest, the data
+it produces can tell you things a success rate never will.</p>
+<h2 id="the-receipt-our-vla-scored-0-and-the-model-was-innocent">The receipt: our VLA scored 0% and the model was innocent<a class="headerlink" href="#the-receipt-our-vla-scored-0-and-the-model-was-innocent" title="Permanent link">&para;</a></h2>
+<p>OpenVLA's published number on LIBERO-Spatial is 84.7%.</p>
+<p>Our first sweep scored <strong>0 for 7</strong>. Every episode ran to the 250-step cap and died. No
+exception, no warning. The robot moved like it meant it — approach, descend, close, lift,
+nothing. Plausible-looking failure, two hundred and fifty steps at a time.</p>
+<p>The usual next move is to pour a coffee and start scrubbing rollout videos. We didn't have to,
+because our harness writes every rollout to parquet — one row per step, with the commanded
+action and the measured gripper state on every row. So instead of watching robots fail in real
+time, we asked the data:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>commanded gripper over one episode: min=0.000  max=0.996
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>LIBERO expects -1 (open) .. +1 (close)
+</code></pre></div>
+<p><strong>The hand could never open.</strong></p>
+<p>OpenVLA's <code>predict_action</code> returns actions in the RLDS convention: gripper in [0, 1], where ~1
+means open. LIBERO's controller wants [-1, +1], where -1 means open. Fed raw, the command is
+never negative — so the gripper physically cannot open — and the polarity is backwards on top.
+The model was innocent. The harness was lying to it.</p>
+<p>The fix is three lines, and it's not even novel — it's exactly what OpenVLA's own eval utils
+do (normalize [0,1] → [-1,1], binarize, invert). After the fix: <strong>10/10 on task 0</strong>, episodes
+finishing in ~80 steps instead of capping out at 250.</p>
+<p>One query. That's the post, really. Everything below is the receipts.</p>
+<h2 id="this-is-everyones-tuesday">This is everyone's Tuesday<a class="headerlink" href="#this-is-everyones-tuesday" title="Permanent link">&para;</a></h2>
+<p>If you work on VLAs, some version of this has happened to you, because the entire genre of
+VLA evaluation fails this way:</p>
+<ul>
+<li>There's a starVLA issue where someone gets <strong>0.00 across 24 tasks</strong> with the official
+  checkpoint and the official README. The cause: one missing <code>unnorm_key</code>.</li>
+<li>A researcher reports that a mere HuggingFace processor <em>warning</em> makes their "success rate
+  drop dramatically."</li>
+<li>There's a LIBERO issue where the target bowl <strong>teleports</strong> during env init. Tasks fail and
+  the policy never had a chance.</li>
+<li>openpi and starVLA both ship loud TRAIN/TEST CONSISTENCY banners in their client code —
+  because eval-time preprocessing has to byte-match training, and when it doesn't, nothing
+  raises. Your success rate just quietly isn't real.</li>
+</ul>
+<p>We mapped the eval stacks of openpi, starVLA, OpenVLA, LeRobot, and AllenAI's
+vla-evaluation-harness against each other (the full grammar is in
+<a href="https://github.com/Eventual-Inc/physical-ai-evals/blob/main/docs/EVAL_PATTERNS.md"><code>docs/EVAL_PATTERNS.md</code></a>). Every one of them decomposes into the same nine
+components — checkpoint, normalization stats, policy wrapper, serving split, env construction,
+chunk handling, success criterion, trials and seeds, recording. And the failure mode of the
+whole genre is the same: <strong>plumbing errors masquerade as model quality.</strong> One scalar out, no
+forensics.</p>
+<p>You can't grep a success rate.</p>
+<h2 id="so-we-made-the-eval-explain-itself">So we made the eval explain itself<a class="headerlink" href="#so-we-made-the-eval-explain-itself" title="Permanent link">&para;</a></h2>
+<p>We built a harness with two jobs.</p>
+<p><strong>Job one: reproduce.</strong> Run VLA-JEPA and OpenVLA on LIBERO, on your own GPU, with the
+canonical protocol (50 trials per task, seed 7 — the constants OpenVLA's eval established and
+everyone else inherited). Each policy runs <strong>in one Python process</strong>: policy, simulator, and
+data capture together. No policy server, no WebSocket, no cloning four repos. The ecosystem's
+server-client split exists for real robots and dependency conflicts — neither applies to sim
+eval in a container, so we deleted the socket. VLA-JEPA loads through its LeRobot port
+(<code>lerobot/VLA-JEPA-LIBERO</code>), LIBERO comes from the <code>hf-libero</code> wheel, and the whole thing runs
+as a <a href="https://daft.ai">Daft</a> UDF on a Modal GPU: episode specs go in as DataFrame rows,
+parquet comes out.</p>
+<p><strong>Job two: understand.</strong> Every rollout streams to a canonical schema — one row per step,
+commanded action, measured gripper separation, end-effector pose, success, a path to the mp4.
+That's the layer none of the five frameworks record, and it's the difference between "the
+number dropped" and knowing <em>why</em>. When our 0% happened, the diagnosis was a filter and two
+aggregations:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">df</span> <span class="o">=</span> <span class="n">daft</span><span class="o">.</span><span class="n">read_parquet</span><span class="p">(</span><span class="s2">&quot;data/rollouts/*/*.parquet&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">failures</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">&quot;success&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="kc">False</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="what-the-comparison-actually-found">What the comparison actually found<a class="headerlink" href="#what-the-comparison-actually-found" title="Permanent link">&para;</a></h2>
+<p>With the harness honest, we ran both policies on LIBERO-Spatial: 10 tasks × 10 trials each,
+seed 7, 200 episodes total.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>success rate</th>
+<th>failures</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VLA-JEPA</td>
+<td><strong>99/100</strong></td>
+<td>1</td>
+</tr>
+<tr>
+<td>OpenVLA</td>
+<td><strong>84/100</strong></td>
+<td>16</td>
+</tr>
+</tbody>
+</table>
+<p>Two things about that table.</p>
+<p>First: OpenVLA's 84% lands within a point of its published 84.7% — from our code, on rented
+GPUs, an hour after that same pipeline was scoring zero. Reproduction isn't a vibe; it's a
+number you can hit.</p>
+<p>Second: the table is still just success rates, and success rates don't tell you what to fix.
+The per-step data does. We labeled every failure from three columns — commanded gripper
+cycles, measured finger separation, end-effector height — and the picture is one-sided:</p>
+<p><strong>OpenVLA fails 16× more often than VLA-JEPA (16% vs 1%) — and 15 of its 16 failures are the
+same failure: a re-grasp fumble loop.</strong></p>
+<p><img alt="How each policy fails: failure rate by mode — OpenVLA's failures are dominated by re-grasp fumble loops" src="../assets/failure-mix-comparison.png" /></p>
+<p>The hero episode makes it visceral. "Pick up the black bowl next to the ramekin and place it
+on the plate": OpenVLA commands <strong>23 grasp attempts</strong> in one episode. The finger-separation
+trace shows the whole story — fingers snap shut to ~2mm (that's the width of <em>air</em>, not a
+bowl), open, reposition, snap shut on air again, twenty-some times until the clock runs out.
+We never watched the video to learn this. The trace <em>is</em> the video, minus the waiting.</p>
+<p><img alt="OpenVLA commanding 23 grasp attempts in one failed episode — measured finger separation collapsing to ~2mm ('closed on air') over and over, with end-effector height overlaid" src="../assets/regrasp-hero-trace.png" /></p>
+<p>(VLA-JEPA's single failure across 100 episodes? Also a fumble loop. When strong policies fail,
+they apparently fail the same way — a hypothesis we now get to test on more suites.)</p>
+<p>That's the actionable difference between 99% and 84%: not "be better," but <em>this policy loses
+objects on the regrasp and can't recover</em>. That's a data-curation target and a fine-tuning
+target, not a shrug.</p>
+<h2 id="the-field-guide-20-landmines-so-you-dont-step-on-them">The field guide: 20 landmines, so you don't step on them<a class="headerlink" href="#the-field-guide-20-landmines-so-you-dont-step-on-them" title="Permanent link">&para;</a></h2>
+<p>We logged every failure we hit getting this running cleanly — because getting it running
+cleanly was the point. The condensed field guide is
+<a href="https://github.com/Eventual-Inc/physical-ai-evals/blob/main/docs/FRICTION_POINTS.md"><code>FRICTION_POINTS.md</code></a> (symptom → fix), the
+chronological story is <a href="https://github.com/Eventual-Inc/physical-ai-evals/blob/main/docs/FRICTION_LOG.md"><code>FRICTION_LOG.md</code></a>, and the
+deep detail is <a href="https://github.com/Eventual-Inc/physical-ai-evals/blob/main/NOTES.md"><code>NOTES.md</code></a>. The highlights:</p>
+<p><strong>Environment and build.</strong> LIBERO's famous "dependency conflict" is a myth — its <code>setup.py</code>
+installs nothing; the scary <code>requirements.txt</code> is for training, not rollouts. CUDA runtime
+images ship no compiler and no cmake (ask <code>evdev</code> and <code>egl_probe</code> how that goes). LIBERO
+prompts for <em>interactive input on first import</em> — it EOFErrors inside a container, and yes,
+that survived into the packaged wheel.</p>
+<p><strong>Silent success-rate killers.</strong> The RLDS↔LIBERO gripper convention (the 0% above). Skipping
+center-crop when the checkpoint trained with crop augmentation. <code>unnorm_key</code> for the LIBERO
+fine-tunes is the <em>suite name</em>, not the dataset name the docs suggest. numpy 2 sneaking in
+through a dependency bump and breaking torch 2.2. Images that must be float [0,1] because a
+processor downstream sets <code>do_rescale=False</code> — feed it 0-255 and nothing raises, ever.</p>
+<p><strong>Sweep killers.</strong> <code>env.reset()</code> every episode: restoring init state alone leaves robosuite's
+internal step counter running <em>across episodes</em>, and around cumulative step 1000 the env
+poisons itself and every episode after — invisible in short runs, fatal in sweeps. (openpi's
+loop resets every episode. Now we know why.) The 180° de-rotated image view breaks
+<code>torch.from_numpy</code> — negative strides. And a bonus from the analysis side: <code>episode_id</code> names
+the episode <em>spec</em>, so two policies produce the same id — group by policy too, or you'll
+chimera two trajectories into one 500-step phantom in a 250-step suite. Ours got caught
+because 500 &gt; 250. Yours might not.</p>
+<p>None of these raise. All of them read as "the model is bad."</p>
+<h2 id="run-it-on-your-data">Run it on your data<a class="headerlink" href="#run-it-on-your-data" title="Permanent link">&para;</a></h2>
+<p>Everything above is one repo: the harness, the executed notebook with the figures, the eval
+grammar, and the full landmine log.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>modal<span class="w"> </span>run<span class="w"> </span>harness/rollout/modal_app.py<span class="w"> </span>--policy-type<span class="w"> </span>openvla<span class="w"> </span>--suites<span class="w"> </span>libero_spatial<span class="w"> </span>--episodes<span class="w"> </span><span class="m">10</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>modal<span class="w"> </span>run<span class="w"> </span>harness/rollout/modal_vla_jepa_app.py<span class="w"> </span>--suites<span class="w"> </span>libero_spatial<span class="w"> </span>--episodes<span class="w"> </span><span class="m">10</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="c1"># then: notebooks/failure_modes.ipynb over data/rollouts/</span>
+</code></pre></div>
+<p>The notebook doesn't care where the parquet came from. The same schema ingests DROID, LeRobot,
+robomimic HDF5, ALOHA, EgoDex, and ABC — so if you've got demonstrations or rollouts in any of
+those, the failure forensics run on <em>your</em> data with a path change. If you try it, we genuinely
+want to hear what breaks: the landmine log grows by contribution.</p>
+<p>The longer-term goal is to add more models, more simulation environments, and more benchmark
+suites so that the robotics community can iterate faster. Strong tooling will not solve the
+hard parts of physical AI by itself, but it can remove a large amount of unnecessary drag.
+Teams should be spending their engineering effort on the self-improvement loop, hardware
+constraints, control design, evaluation quality, and deployment — not on rebuilding
+incompatible Python environments for every paper they want to test.</p>
+<h2 id="a-direct-ask-if-you-do-this-work">A direct ask, if you do this work<a class="headerlink" href="#a-direct-ask-if-you-do-this-work" title="Permanent link">&para;</a></h2>
+<!-- AUTHOR CTA DRAFT — edit channel/link to taste before publishing -->
+<p>If you evaluate VLAs — or you've burned a weekend rebuilding someone's environment to run
+one — I want fifteen minutes of your candor. What broke? What does your eval record that
+ours doesn't? What would make you actually run this on your own data?</p>
+<p>Open an <a href="https://github.com/Eventual-Inc/physical-ai-evals/issues">issue</a> with what broke or what's missing, or reach me directly —
+<strong><a href="mailto:ekleven@vangelis.tech">ekleven@vangelis.tech</a></strong> — and I'll personally help you get your benchmark
+running. If this repo can genuinely remove drag for your lab, that's the whole point of
+having built it in the open.</p>
+<p>We're Eventual, we build <a href="https://daft.ai">Daft</a>, and we're building data tooling for physical
+AI. If success rates are hiding your failures too — come find us.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
