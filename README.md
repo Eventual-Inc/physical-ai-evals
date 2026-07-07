@@ -3,46 +3,6 @@
 This repository provides a modern, unified Python environment for running robotics model
 benchmarks across VLA, JEPA, LIBERO, MuJoCo, and robosuite.
 
-Many academic robotics repositories ship with strict dependency pins and isolated environment
-assumptions. Those constraints often make it difficult to reproduce results, compare models,
-or integrate research code into production-grade systems. After testing the dependency
-requirements across several fragmented implementations, we found that many of these
-constraints were not fundamental. They could be resolved with standard engineering practices,
-modern Python tooling, and careful compatibility fixes.
-
-The purpose of this project is to reduce that friction. It gives physical AI researchers and
-industry practitioners a coherent starting point for benchmarking new models without needing
-to reconstruct a fragile environment for every paper or baseline. The repository includes the
-compatibility work, bug fixes, and workflow templates needed to run these systems in a single
-environment that can also scale on [Modal](https://modal.com).
-
-The aim is not only reproducibility, but **operational reproducibility**: the ability to run,
-modify, compare, scale, and extend research systems in a way that matches how real engineering
-teams work.
-
-**And one number is not enough.** You can get a success rate; you can't easily answer _why_
-your VLA fails. This repo makes *"run VLA-JEPA and OpenVLA on LIBERO, on your own GPU, end to
-end — and see why it fails"* a solved, repeatable thing:
-
-1. **Reproduce** — both policies run **in-process** on Modal GPUs against the canonical LIBERO
-   protocol (50 trials/task, seed 7 — the OpenVLA-origin constants that openpi, starVLA, and
-   allenai/vla-eval all inherit; see [docs/EVAL_PATTERNS.md](docs/EVAL_PATTERNS.md)). Every
-   dependency landmine we hit is logged in [NOTES.md](NOTES.md).
-2. **Understand** — every rollout streams to a canonical **one-row-per-step parquet schema**
-   ([`harness/schema.py`](harness/schema.py)), so "success rate dropped" decomposes into
-   *policy* failures (re-grasp loops, drops) vs *harness* failures (bad unnorm ⇒ saturated
-   actions; bad init state; preprocessing drift) with a Daft query instead of scrubbing video.
-3. **Generalize** — the same `Episode`/`Step` representation ingests
-   **DROID · LeRobot · HDF5 · ALOHA · EgoDex · ABC**, so your demonstration data and your
-   eval rollouts land in one queryable frame.
-
-**The stack is deliberately opinionated:** Python end to end — [Daft](https://daft.ai) as the
-data plane (datasets → DataFrames in, parquet out), Modal for GPU placement, PyTorch policies
-**in-process** (no policy server, no WebSocket — the container boundary and `@daft.cls` worker
-replace them), MuJoCo/robosuite for sim. Where the tech-agnostic route
-(allenai/vla-evaluation-harness) buys generality with a mandatory network boundary and
-per-benchmark Docker, this buys reproducibility with one process you can read top to bottom.
-
 ## Quickstart
 
 ```bash
@@ -200,9 +160,44 @@ are exactly three seams:
 For GPU scale, copy either Modal app ([`harness/rollout/modal_app.py`](harness/rollout/modal_app.py))
 and swap the pip pins — the resumable-sweep and deploy/spawn machinery is policy-agnostic.
 
-## The three deliverables
+## Motivation
 
-1. **Harness** (this repo) — reproducible rollouts → parquet.
-2. **Notebook** — comparative failure-mode analysis (VLA-JEPA vs OpenVLA), re-grasp detection
-   as the hero. Outline: [`notebooks/README.md`](notebooks/README.md).
-3. **Blog post + social** — including the reproducibility story from [NOTES.md](NOTES.md).
+Many academic robotics repositories ship with strict dependency pins and isolated environment
+assumptions. Those constraints often make it difficult to reproduce results, compare models,
+or integrate research code into production-grade systems. After testing the dependency
+requirements across several fragmented implementations, we found that many of these
+constraints were not fundamental. They could be resolved with standard engineering practices,
+modern Python tooling, and careful compatibility fixes.
+
+The purpose of this project is to reduce that friction. It gives physical AI researchers and
+industry practitioners a coherent starting point for benchmarking new models without needing
+to reconstruct a fragile environment for every paper or baseline. The repository includes the
+compatibility work, bug fixes, and workflow templates needed to run these systems in a single
+environment that can also scale on [Modal](https://modal.com).
+
+The aim is not only reproducibility, but **operational reproducibility**: the ability to run,
+modify, compare, scale, and extend research systems in a way that matches how real engineering
+teams work.
+
+**And one number is not enough.** You can get a success rate; you can't easily answer _why_
+your VLA fails. This repo makes *"run VLA-JEPA and OpenVLA on LIBERO, on your own GPU, end to
+end — and see why it fails"* a solved, repeatable thing:
+
+1. **Reproduce** — both policies run **in-process** on Modal GPUs against the canonical LIBERO
+   protocol (50 trials/task, seed 7 — the OpenVLA-origin constants that openpi, starVLA, and
+   allenai/vla-eval all inherit; see [docs/EVAL_PATTERNS.md](docs/EVAL_PATTERNS.md)). Every
+   dependency landmine we hit is logged in [NOTES.md](NOTES.md).
+2. **Understand** — every rollout streams to a canonical **one-row-per-step parquet schema**
+   ([`harness/schema.py`](harness/schema.py)), so "success rate dropped" decomposes into
+   *policy* failures (re-grasp loops, drops) vs *harness* failures (bad unnorm ⇒ saturated
+   actions; bad init state; preprocessing drift) with a Daft query instead of scrubbing video.
+3. **Generalize** — the same `Episode`/`Step` representation ingests
+   **DROID · LeRobot · HDF5 · ALOHA · EgoDex · ABC**, so your demonstration data and your
+   eval rollouts land in one queryable frame.
+
+**The stack is deliberately opinionated:** Python end to end — [Daft](https://daft.ai) as the
+data plane (datasets → DataFrames in, parquet out), Modal for GPU placement, PyTorch policies
+**in-process** (no policy server, no WebSocket — the container boundary and `@daft.cls` worker
+replace them), MuJoCo/robosuite for sim. Where the tech-agnostic route
+(allenai/vla-evaluation-harness) buys generality with a mandatory network boundary and
+per-benchmark Docker, this buys reproducibility with one process you can read top to bottom.
