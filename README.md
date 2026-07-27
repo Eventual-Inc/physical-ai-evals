@@ -1,203 +1,225 @@
 # physical-ai-evals
 
-This repository provides a modern, unified Python environment for running robotics model
-benchmarks across VLA, JEPA, LIBERO, MuJoCo, and robosuite.
+[![CI](https://github.com/Eventual-Inc/physical-ai-evals/actions/workflows/ci.yml/badge.svg)](https://github.com/Eventual-Inc/physical-ai-evals/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+
+An evaluation harness for running VLA policies on LIBERO and preserving the result as
+queryable, one-row-per-step Parquet. The repository currently ships OpenVLA and VLA-JEPA
+adapters, local and Modal execution paths, a normalized episode schema, and an exploratory
+paired pilot artifact.
+
+The project is intended as research infrastructure. Its strongest claim is that an evaluation
+can be inspected and extended from recorded trajectories; it does **not** claim that the pilot
+below is a reproduction of a published leaderboard result.
+
+## Exploratory paired pilot
+
+The artifact labeled `2026-07-02` contains the two policies evaluated on the same 100
+LIBERO-Spatial episode specifications: 10 tasks × fixed initial-state indices 0–9. The label is
+an artifact identifier; the execution timestamp was not recorded. This is a paired exploratory
+case study, not the 50-trials-per-task LIBERO reference protocol.
+
+| Policy | Successes | Rate | Descriptive 95% Wilson interval |
+|---|---:|---:|---:|
+| VLA-JEPA | 99/100 | 99% | 94.6%–99.8% |
+| OpenVLA | 84/100 | 84% | 75.6%–89.9% |
+
+The Wilson intervals treat episodes as independent and identically distributed. That
+assumption is not justified by ten fixed initial states nested within ten tasks, so the
+intervals are descriptive only; they are not uncertainty estimates for a task distribution or
+a new benchmark sample.
+
+The paired outcomes expose more information than the two marginal rates:
+
+| VLA-JEPA outcome | OpenVLA outcome | Episode specifications |
+|---|---|---:|
+| success | success | 84 |
+| success | failure | 15 |
+| failure | success | 0 |
+| failure | failure | 1 |
+
+Per-task successes, with ten fixed initial states for each policy:
+
+| LIBERO-Spatial task id | VLA-JEPA | OpenVLA |
+|---:|---:|---:|
+| 0 | 10/10 | 10/10 |
+| 1 | 10/10 | 8/10 |
+| 2 | 10/10 | 9/10 |
+| 3 | 10/10 | 9/10 |
+| 4 | 10/10 | 7/10 |
+| 5 | 9/10 | 6/10 |
+| 6 | 10/10 | 9/10 |
+| 7 | 10/10 | 10/10 |
+| 8 | 10/10 | 7/10 |
+| 9 | 10/10 | 9/10 |
+
+The self-contained evidence bundle is in
+[`results/libero-spatial-pilot-2026-07-02/`](results/libero-spatial-pilot-2026-07-02/).
+Start with its [`README.md`](results/libero-spatial-pilot-2026-07-02/README.md), then inspect
+the machine-readable [`manifest.json`](results/libero-spatial-pilot-2026-07-02/manifest.json),
+[`summary.json`](results/libero-spatial-pilot-2026-07-02/summary.json), and
+[`episodes.csv`](results/libero-spatial-pilot-2026-07-02/episodes.csv). `SHA256SUMS` binds the
+files in the bundle.
+
+### Pilot limitations
+
+- The stored episode seed and filenames say `7`, because `7` was requested. The referenced
+  historical Modal path constructed LIBERO with `env_seed=0`, but the exact executed code
+  revision is unavailable; treat the simulator seed as 0/unverified. Policy RNG state was
+  neither explicitly controlled nor recorded. The artifact therefore does not establish a
+  seed-7 simulator run or bit-for-bit replayability.
+- Initial-state indices 0–9 were fixed and paired across policies, but there were only ten
+  trials per task. The LIBERO reference evaluation uses 50 trials per task.
+- The OpenVLA Parquet rows store an empty `model` field. The expected checkpoint was
+  `openvla/openvla-7b-finetuned-libero-spatial`, but the raw artifact does not independently
+  establish its resolved checkpoint revision. VLA-JEPA records
+  `lerobot/VLA-JEPA-LIBERO`, also without a revision.
+- All 17 failed episodes have raw `terminal_failure="unlabeled"`. The notebook's 15 OpenVLA
+  and 1 VLA-JEPA "repeated-close" assignments are automated, post-hoc candidates based on
+  gripper commands and finger separation. They have not been manually validated as object
+  drops and reacquisitions.
+- A `rollout-v1` row mixes `obs_t` image/state and `action_t` with post-action reward,
+  terminal flag, end-effector position, and gripper state from `obs_{t+1}`; the terminal next
+  frame is absent. See [row timing](docs/EVAL_PATTERNS.md#rollout-v1-row-timing).
+- The traces can support diagnosis hypotheses, but they do not by themselves identify whether
+  a behavior was caused by a policy, preprocessing, simulator state, or another harness choice.
+
+These limitations are preserved in the bundle rather than repaired retrospectively. A future
+protocol-conformant rerun should pin code and checkpoint revisions, record resolved
+configuration, control policy and simulator RNG, and use 50 initial states per task.
 
 ## Quickstart
 
-```bash
-pip install -e ".[dev]"
-# daft.datasets.lerobot + Hdf5File are on Daft nightly until the next release:
-pip install daft --pre --extra-index-url https://nightly.daft.ai
-pytest                          # 42 tests, CPU-only, no weights/sim needed
+Python 3.12 is the recommended development interpreter. The two policy stacks use separate
+environments because their `transformers` requirements conflict.
 
-harness rollout --policy vla_jepa --suite libero_spatial --task-ids 0 --episodes 2 --dry-run
-harness ingest  --source hdf5 --input demos/libero_goal.hdf5 --out data/rollouts --dry-run
+```bash
+make setup
+make check
+
+# Resolve plans without importing a policy or simulator stack.
+.venv/bin/harness rollout --policy vla_jepa --suite libero_spatial \
+  --task-ids 0 --episodes 2 --seed 7 --dry-run
+.venv/bin/harness ingest --source hdf5 --input demos/libero_goal.hdf5 \
+  --out data/rollouts --dry-run
 ```
 
-`--dry-run` prints the resolved plan without importing any heavy policy/sim stack.
+`make setup` installs the CPU policy-adapter test dependencies; `make check` runs the full
+lint, type, and test gate. `uv sync && uv run pytest` is a lighter core-only path, but optional
+policy-adapter tests may skip. `make docs-build` builds this documentation in strict mode.
 
-**Python: one interpreter — 3.12 — everywhere** (core supports 3.10–3.13; the `vla_jepa`
-extra needs ≥3.12 because lerobot does). The two policy stacks still need **separate
-environments/images**, but the split is the *transformers pin* (OpenVLA ==4.40.1 vs
-VLA-JEPA's 5.4–5.6), never the Python version — the old "LIBERO needs Python 3.8" story is
-a myth we falsified on Modal (see [NOTES.md](NOTES.md)):
+Install optional local stacks only when needed:
 
 ```bash
-pip install -e ".[openvla]"        # transformers==4.40.1 stack (py3.12-verified)
-# VLA-JEPA (linux GPU box; the Modal image is the canonical path — see below). The extra is
-# a documented pointer, not deps: lerobot's git pyproject breaks uv's universal lock (FRICTION_LOG #22)
+pip install -e ".[openvla]"
 pip install "lerobot[vla_jepa] @ git+https://github.com/huggingface/lerobot@052d329470ea8d5c98a4b4bd1f6c18abd0ac7c34"
-pip install -e ".[ingest_hdf5]"    # h5py (also: ingest_aloha / ingest_egodex / ingest_abc)
-pip install -e ".[embed]"          # sentence-transformers for the clustering pass
+pip install -e ".[ingest_hdf5]"
 ```
 
-## Running rollouts on Modal
+## Modal rollouts
 
-Rollouts run as a `@daft.cls` UDF on Modal GPUs — one episode spec per row, per-step
-trajectories written to a parquet glob. Two apps (both Python 3.12) because the transformers
-pins conflict (OpenVLA ==4.40.1; VLA-JEPA's lerobot stack 5.4–5.6).
+Each policy has its own Modal image. The episode worker invokes the selected policy and LIBERO
+simulator together; this deployment choice does not imply that both policy stacks share one
+environment or that the architecture is preferable for every evaluator.
 
-One-time setup (auth + the HF token secret; volumes auto-create on first run):
+One-time setup:
 
 ```bash
-pip install -e ".[dev,modal]"
-modal token new
-modal secret create hf-token HF_TOKEN=<your-hf-token>
+# `make setup` already includes Modal. For a Modal-only environment instead:
+uv sync --frozen --extra modal
+.venv/bin/modal token new
+.venv/bin/modal secret create hf-token HF_TOKEN=<your-hf-token>
 ```
 
-Then one command per sweep:
+Small explicit sweeps:
 
 ```bash
+# OpenVLA
+.venv/bin/modal run harness/cloud/openvla_app.py \
+  --suites libero_spatial --task-ids 0 --episodes 2 --seed 7 \
+  --model-id openvla/openvla-7b-finetuned-libero-spatial \
+  --model-revision 962318cec55ac10993ff0f5f43eda9a270b4c873
 
-# OpenVLA (image verified: builds + LIBERO imports green)
-modal run harness/rollout/modal_app.py --policy-type openvla --suites libero_spatial --task-ids 0 --episodes 2
-
-# VLA-JEPA — in-process via the lerobot port + lerobot/VLA-JEPA-LIBERO checkpoint.
-# No policy server: lerobot[vla_jepa,libero] puts the policy AND the sim in one process
-# (hf-libero ships LIBERO's bddl/assets in the wheel — no git clone, no config patching).
-modal run harness/rollout/modal_vla_jepa_app.py --smoke-test
-modal run harness/rollout/modal_vla_jepa_app.py --download-only
-modal run harness/rollout/modal_vla_jepa_app.py --suites libero_spatial --task-ids 0 --episodes 2
+# VLA-JEPA
+.venv/bin/modal run harness/cloud/vla_jepa_app.py \
+  --suites libero_spatial --task-ids 0 --episodes 2 --seed 7 \
+  --model-id lerobot/VLA-JEPA-LIBERO \
+  --model-revision 735d9f692981e286ade093b5046627eda876e5d0
 ```
 
-## Reading the output in Daft
+Before interpreting a new result, verify the emitted manifest/configuration and confirm the
+resolved suite-to-checkpoint mapping. See [Evaluation patterns](docs/EVAL_PATTERNS.md) for the
+upstream protocol and local deviations.
 
-One row per step, one part file per episode, one glob:
+## Querying outcomes and candidate signatures
+
+`success` is denormalized onto every step. Aggregate by both policy and episode; the same
+episode id intentionally appears under both policies.
 
 ```python
 import daft
-df = daft.read_parquet("data/rollouts/*.parquet")
-failures = df.where(df["success"] == False)        # the wedge: only the failures
-failures.groupby("terminal_failure").count().show()
+
+steps = daft.read_parquet("data/rollouts/*/*.parquet")
+episodes = steps.groupby("policy_type", "episode_id").agg(
+    daft.col("success").any_value().alias("success"),
+    daft.col("step_idx").count().alias("steps"),
+)
+failures = episodes.where(episodes["success"] == False)
+failures.groupby("policy_type").agg(
+    daft.col("episode_id").count().alias("failed_episodes")
+).show()
 ```
 
-[`notebooks/regrasp_demo.py`](notebooks/regrasp_demo.py) runs the whole failure-forensics
-loop on synthetic rollouts (no GPU): Daft glob → re-grasp detector over the per-step
-gripper/object signal → the annotated grasp→lift→drop→re-grasp trajectory plot.
+Do not group the pilot by `terminal_failure` expecting behavioral classes: all raw failures are
+`unlabeled`. [`notebooks/failure_modes.py`](notebooks/failure_modes.py) demonstrates an
+explicit post-hoc repeated-close **candidate** detector. Its thresholds and labels require
+validation against video or manual annotation before being treated as failure modes. Its
+action-to-gripper features are transition-aligned; other row fields are not a simultaneous
+snapshot.
 
-## Ingesting datasets
+## Repository map
 
-Six sources normalize onto the same `Episode`/`Step` waist and emit the identical schema —
-`daft.datasets.{lerobot,droid}` do the reading where Daft is native, our adapters do the rest:
-
-```bash
-harness ingest --source lerobot --input org/dataset-name --out data/rollouts
-harness ingest --source droid   --input /path/to/droid_raw --out data/rollouts
-harness ingest --source aloha   --input demos/aloha_task   --out data/rollouts
-```
-
-### ABC (abc.bot)
-
-ABC publishes tooling at `amazon-far/abc`; query the gated HF tree before downloading:
-
-```bash
-harness abc-query --split train --contains bottles --limit 10
-```
-
-Use ABC's downloader/converter for a small subset, then ingest the exported episodes
-(`episode_<uuid>/{states_actions.bin, combined_camera-images-rgb.mp4, episode_metadata.json}`):
-
-```bash
-pip install -e ".[dev,ingest_abc]"
-harness ingest --source abc --input /path/to/abc/cache --out data/rollouts
-```
-
-## Repo map
-
-```
+```text
 harness/
-  schema.py            the rollout parquet schema (one row per step) — the contract
-  config.py            RolloutConfig / IngestConfig / EmbedConfig (canonical protocol defaults)
-  writer.py            write_rows/write_episode + RolloutWriter (streaming capture)
-  cli.py               harness rollout / ingest / abc-query
-  _modal.py            modal-free deploy infra (paths, HF cache, weight resolution)
-  ingest/
-    base.py            Episode / Step / Ingestor + to_step_rows()
-    lerobot.py         LeRobot v3 via daft.datasets.lerobot.read()
-    droid.py           raw DROID via daft.datasets.droid.raw() + our trajectory.h5 parser
-    hdf5.py            robomimic/LIBERO HDF5
-    aloha.py           ALOHA / Mobile ALOHA HDF5 (robot-native joint actions)
-    egodex.py          EgoDex HDF5 annotations + MP4 paths (human egocentric)
-    abc.py             ABC exported episodes  ·  abc_query.py: HF metadata queries
-  rollout/
-    policy.py          Policy ABC (reset / act) — the seam every backend implements
-    libero_runner.py   make_env / run_episode / run_sweep (protocol-faithful closed loop)
-    rollout_udf.py     @daft.cls LIBERO rollout UDF (one episode-spec row -> one episode)
-    modal_app.py       OpenVLA Modal app (image verified)
-    modal_vla_jepa_app.py  VLA-JEPA Modal app — in-process lerobot, no server (GPU-unverified)
-  policies/
-    openvla.py         OpenVLA in-process via HF predict_action (suite-name unnorm_key)
-    vla_jepa.py        VLA-JEPA in-process via the lerobot port + hub checkpoint
-docs/EVAL_PATTERNS.md  the VLA evaluation grammar: 9 components, model x benchmark matrix, lexicon
-notebooks/             regrasp_demo.py (failure forensics on synthetic data) + notebook outline
-NOTES.md               the reproducibility-gotchas log — every landmine, with fixes
-BACKLOG.md             explicitly-not-shipping list + idea parking lot
-tests/                 42 CPU-only tests: schema · ingest (all six) · policies · rollout loop
+  core/       episode model, schema, configuration, writer, geometry
+  policy/     Policy interface plus OpenVLA and VLA-JEPA adapters
+  bench/      LIBERO environment and rollout loop
+  cloud/      Modal images, sweep enumeration, and rollout UDF
+  ingest/     normalized dataset adapters
+  analysis/   exploratory behavioral-signature helpers
+docs/         protocol crosswalk, provenance notes, and observed friction points
+notebooks/    paired-pilot analysis and a separate synthetic detector demo
+results/      immutable, checksummed research artifacts
+tests/        CPU-oriented unit and integration tests
 ```
 
-## Use it as a starter kit
+The stable extension seams are:
 
-This repo is a template, not just an artifact of one comparison: **uv**-managed,
-**ruff**-linted, **ty**-typechecked, CPU-testable (42 tests, no GPU or weights needed), with CI
-and a docs site already wired. To evaluate **your** policy on a LIBERO-shaped benchmark, there
-are exactly three seams:
+1. Implement [`Policy`](harness/policy/base.py) with `reset(instruction)` and `act(obs)`.
+2. Adapt a benchmark to the gym-shaped loop in [`harness/bench/libero.py`](harness/bench/libero.py).
+3. Produce [`Episode`](harness/core/episode.py) and `Step` values and serialize them with the
+   shared writer; [`harness/ingest/hdf5.py`](harness/ingest/hdf5.py) is one example.
 
-1. **Your policy** — subclass `Policy` ([`harness/rollout/policy.py`](harness/rollout/policy.py)):
-   `reset(instruction)` + `act(obs) -> (7,) float32`. Both shipped policies
-   ([`harness/policies/`](harness/policies/)) are ~150-line adapters behind this seam — the
-   runner, writer, schema, and Modal apps never change. The injection seams (`_policy=`,
-   `_vla=`) let you unit-test your adapter with fakes before a GPU ever spins up.
-2. **Your benchmark** — anything *LIBERO-shaped* fits
-   [`run_episode`](harness/rollout/libero_runner.py): episodes enumerated as
-   (task × init-state × seed) specs, observations = RGB (+ wrist + proprio), actions = 7-DoF
-   EEF deltas. Swap `make_env` and the suite constants in
-   [`harness/config.py`](harness/config.py).
-3. **Your data** — write one `Ingestor` producing `Episode`/`Step`
-   ([`harness/ingest/base.py`](harness/ingest/base.py)) and your dataset lands in the same
-   parquet schema as the rollouts. Six adapters in-tree to copy from.
+## Research lineage and citation
 
-For GPU scale, copy either Modal app ([`harness/rollout/modal_app.py`](harness/rollout/modal_app.py))
-and swap the pip pins — the resumable-sweep and deploy/spawn machinery is policy-agnostic.
+The implementation builds on the primary projects below. The links point to their papers or
+source repositories; they do not imply endorsement of this pilot.
 
-## Motivation
+- [LIBERO paper](https://arxiv.org/abs/2306.03310) and
+  [official implementation](https://github.com/Lifelong-Robot-Learning/LIBERO)
+- [OpenVLA paper](https://arxiv.org/abs/2406.09246) and
+  [official implementation](https://github.com/openvla/openvla)
+- [VLA-JEPA implementation](https://github.com/ginwind/VLA-JEPA) and the
+  [LeRobot checkpoint revision pinned for future runs](https://huggingface.co/lerobot/VLA-JEPA-LIBERO/tree/735d9f692981e286ade093b5046627eda876e5d0)
+- [OpenVLA-Spatial checkpoint revision pinned for future runs](https://huggingface.co/openvla/openvla-7b-finetuned-libero-spatial/tree/962318cec55ac10993ff0f5f43eda9a270b4c873)
+- [LeRobot source revision used by the Modal image](https://github.com/huggingface/lerobot/tree/052d329470ea8d5c98a4b4bd1f6c18abd0ac7c34)
+- [Daft](https://github.com/Eventual-Inc/Daft), used for the rollout data plane
 
-Many academic robotics repositories ship with strict dependency pins and isolated environment
-assumptions. Those constraints often make it difficult to reproduce results, compare models,
-or integrate research code into production-grade systems. After testing the dependency
-requirements across several fragmented implementations, we found that many of these
-constraints were not fundamental. They could be resolved with standard engineering practices,
-modern Python tooling, and careful compatibility fixes.
+Please cite the software metadata in [`CITATION.cff`](CITATION.cff), and cite the upstream
+papers/models relevant to the policy and benchmark you use.
 
-The purpose of this project is to reduce that friction. It gives physical AI researchers and
-industry practitioners a coherent starting point for benchmarking new models without needing
-to reconstruct a fragile environment for every paper or baseline. The repository includes the
-compatibility work, bug fixes, and workflow templates needed to run these systems in a single
-environment that can also scale on [Modal](https://modal.com).
+## License
 
-The aim is not only reproducibility, but **operational reproducibility**: the ability to run,
-modify, compare, scale, and extend research systems in a way that matches how real engineering
-teams work.
-
-**And one number is not enough.** You can get a success rate; you can't easily answer _why_
-your VLA fails. This repo makes *"run VLA-JEPA and OpenVLA on LIBERO, on your own GPU, end to
-end — and see why it fails"* a solved, repeatable thing:
-
-1. **Reproduce** — both policies run **in-process** on Modal GPUs against the canonical LIBERO
-   protocol (50 trials/task, seed 7 — the OpenVLA-origin constants that openpi, starVLA, and
-   allenai/vla-eval all inherit; see [docs/EVAL_PATTERNS.md](docs/EVAL_PATTERNS.md)). Every
-   dependency landmine we hit is logged in [NOTES.md](NOTES.md).
-2. **Understand** — every rollout streams to a canonical **one-row-per-step parquet schema**
-   ([`harness/schema.py`](harness/schema.py)), so "success rate dropped" decomposes into
-   *policy* failures (re-grasp loops, drops) vs *harness* failures (bad unnorm ⇒ saturated
-   actions; bad init state; preprocessing drift) with a Daft query instead of scrubbing video.
-3. **Generalize** — the same `Episode`/`Step` representation ingests
-   **DROID · LeRobot · HDF5 · ALOHA · EgoDex · ABC**, so your demonstration data and your
-   eval rollouts land in one queryable frame.
-
-**The stack is deliberately opinionated:** Python end to end — [Daft](https://daft.ai) as the
-data plane (datasets → DataFrames in, parquet out), Modal for GPU placement, PyTorch policies
-**in-process** (no policy server, no WebSocket — the container boundary and `@daft.cls` worker
-replace them), MuJoCo/robosuite for sim. Where the tech-agnostic route
-(allenai/vla-evaluation-harness) buys generality with a mandatory network boundary and
-per-benchmark Docker, this buys reproducibility with one process you can read top to bottom.
+Apache-2.0 applies to this repository's code. Upstream software, model weights, datasets, and
+assets remain subject to their own terms; see [Third-party notices](THIRD_PARTY_NOTICES.md).
+Built by [Eventual](https://eventual.ai), the team behind [Daft](https://daft.ai).

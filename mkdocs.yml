@@ -44,11 +44,5 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - The write-up: BLOG_POST.md
   - Evaluation patterns: EVAL_PATTERNS.md
-  - Friction:
-      - Friction points: FRICTION_POINTS.md
-      - Friction log: FRICTION_LOG.md
-
-exclude_docs: |
-  BLOG_OUTLINE.md
+  - Friction points: FRICTION_POINTS.md
