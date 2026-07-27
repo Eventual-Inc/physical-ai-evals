@@ -11,12 +11,11 @@ dist/
 .mypy_cache/
 .ipynb_checkpoints/
 
-# --- virtual envs (we run multiple: core, libero(3.8), openvla, vla_jepa) ---
+# --- virtual envs ---
 .venv/
 venv/
 env/
-.python-version
-# conda env exports kept out of git; pin in NOTES.md instead
+# `.python-version` is intentionally tracked: Python 3.12 is the tested runtime.
 
 # --- harness artifacts (large; never commit rollout data/media) ---
 data/            # rollouts/, frames/, videos/  (parquet + png + mp4)
@@ -28,6 +27,10 @@ data/            # rollouts/, frames/, videos/  (parquet + png + mp4)
 !tests/fixtures/**/*.parquet
 # blog/publication assets are committed:
 !docs/assets/*.png
+
+# Small, versioned research evidence bundles are intentionally committed.
+!results/
+!results/**
 
 # --- sim / training artifacts ---
 mujoco/

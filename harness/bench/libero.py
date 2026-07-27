@@ -1,31 +1,21 @@
-"""LIBERO rollout runner — drives a policy through LIBERO and captures to parquet.
-
-Wraps LIBERO faithfully per the OpenPI ``examples/libero/main.py`` reference. The env stack
-is version-fragile (see NOTES.md): robosuite==1.4.0, bddl==1.0.1, numpy==1.22.4, gym==0.25.2,
-and ``MUJOCO_GL`` (egl on Linux / cgl on macOS) MUST be set BEFORE importing robosuite/mujoco.
-
-``run_episode`` is the policy/env-agnostic closed loop — it only touches the ``Policy`` ABC and
-a gym-style env (``set_init_state`` / ``step`` / ``check_success`` / ``close``), so it is
-unit-tested with a fake env + fake policy. ``make_env`` / the LIBERO suite enumeration use real
-LIBERO (lazy import); ``run_sweep`` takes injectable seams so its iteration is testable too.
-"""
+"""LIBERO rollout runner: policy + env -> parquet via RolloutWriter."""
 
 from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass
 
 import numpy as np
+from pydantic import BaseModel, ConfigDict
 
-from harness.config import RolloutConfig
-from harness.rollout.policy import Policy
-from harness.writer import RolloutWriter
+from harness.core.config import RolloutConfig
+from harness.core.geometry import quat_xyzw_to_axis_angle
+from harness.core.writer import RolloutWriter
+from harness.policy.base import Policy
 
 
-@dataclass
-class RolloutResult:
-    """Outcome of one episode."""
+class RolloutResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
 
     episode_id: str
     success: bool
@@ -36,16 +26,12 @@ class RolloutResult:
 
 
 def _set_mujoco_gl() -> None:
-    """Force a headless GL backend BEFORE importing robosuite/mujoco (egl Linux / cgl macOS)."""
     if "MUJOCO_GL" not in os.environ:
         os.environ["MUJOCO_GL"] = "cgl" if sys.platform == "darwin" else "egl"
         os.environ.setdefault("PYOPENGL_PLATFORM", os.environ["MUJOCO_GL"])
 
 
-# --- observation helpers (robosuite obs dict -> our spine fields) ---
-
 def _derotate(img) -> np.ndarray:
-    """LIBERO agentview renders 180deg rotated vs released VLA checkpoints — undo it (NOTES.md)."""
     return np.asarray(img)[::-1, ::-1]
 
 
@@ -63,14 +49,13 @@ def _gripper(obs):
 
 
 def _proprio(obs):
-    """LeRobot-style 8-dim state: eef pos (3) + eef axis-angle (3) + gripper qpos (2)."""
+    """LeRobot-style 8-dim: eef pos (3) + axis-angle (3) + gripper qpos (2)."""
     eef, quat, grip = obs.get("robot0_eef_pos"), obs.get("robot0_eef_quat"), obs.get("robot0_gripper_qpos")
     if eef is None or grip is None:
         return None
     parts = [np.asarray(eef, np.float32).ravel()[:3]]
     if quat is not None:
-        from harness.ingest.hdf5 import _quat_xyzw_to_axis_angle
-        parts.append(_quat_xyzw_to_axis_angle(np.asarray(quat).reshape(1, 4))[0])
+        parts.append(quat_xyzw_to_axis_angle(np.asarray(quat).reshape(1, 4))[0])
     grip = np.asarray(grip, np.float32).ravel()
     parts.append(grip[:2] if grip.size >= 2 else grip)
     return np.concatenate(parts).astype(np.float32)
@@ -95,21 +80,6 @@ def run_episode(
     model: str = "",
     policy_type: str = "",
 ) -> RolloutResult:
-    """Run one deterministic episode and stream it to ``writer`` -> one parquet part.
-
-    Loop (faithful to OpenPI): ``env.reset()`` -> ``set_init_state`` (selects object layout,
-    NOT just seed) -> settle ``num_steps_wait`` zero-action steps -> ``policy.reset`` -> for
-    each step: de-rotate agentview, ``policy.act`` -> clip -> ``env.step`` (OLD gym 4-tuple)
-    -> append. Success is the BDDL predicate ``env.check_success()``, independent of the
-    ``done`` flag. ``terminal_failure`` is left ``'unlabeled'`` on failure; the notebook's
-    pass assigns the real class.
-
-    ``env.reset()`` per episode is LOAD-BEARING for cached envs: ``set_init_state`` alone does
-    NOT clear robosuite's internal ``timestep``/``done``, so reuse accumulates toward the
-    horizon (1000) and, once tripped, every later ``step`` raises "executing action in
-    terminated episode" (NOTES.md — surfaced on the first multi-episode sweep, invisible in
-    short runs).
-    """
     writer.begin_episode(
         episode_id, suite=suite, task_id=task_id, task_name=task_name, instruction=instruction,
         model=model, policy_type=policy_type or policy.__class__.__name__, init_state_id=init_state_id,
@@ -118,7 +88,7 @@ def run_episode(
     env.reset()
     obs = env.set_init_state(init_state)
     dummy = [0.0] * policy.action_dim
-    for _ in range(num_steps_wait):  # let objects settle before policy control
+    for _ in range(num_steps_wait):
         obs = env.step(dummy)[0]
 
     policy.reset(instruction)
@@ -129,7 +99,7 @@ def run_episode(
         state = _proprio(obs)
         action = policy.act({"image": primary, "wrist_image": wrist, "state": state, "instruction": instruction})
         action = np.clip(np.asarray(action, np.float32), -1.0, 1.0)
-        obs, reward, done, _info = env.step(action)  # gym==0.25.2 4-tuple, NOT gymnasium 5-tuple
+        obs, reward, done, _info = env.step(action)
         writer.append_step(
             t, action=action, reward=float(reward), done=bool(done), state=state,
             eef_pos=_eef_pos(obs), gripper_state=_gripper(obs),
@@ -142,15 +112,17 @@ def run_episode(
     success = bool(env.check_success())
     terminal_failure = None if success else "unlabeled"
     parquet = writer.end_episode(success, terminal_failure=terminal_failure)
-    return RolloutResult(episode_id, success, float(reward), steps_run, terminal_failure, str(parquet))
+    return RolloutResult(
+        episode_id=episode_id,
+        success=success,
+        reward=float(reward),
+        num_steps=steps_run,
+        terminal_failure=terminal_failure,
+        parquet_path=str(parquet),
+    )
 
 
 def make_env(suite_name: str, task_id: int, *, camera_height: int = 256, camera_width: int = 256, seed: int = 0):
-    """Build a LIBERO ``OffScreenRenderEnv`` for one task. Mirrors OpenPI ``_get_libero_env``.
-
-    Returns ``(env, task)``; ``task.language`` is the instruction. ``env.step`` is the OLD gym
-    4-tuple (gym==0.25.2). Sets ``MUJOCO_GL`` before the robosuite import.
-    """
     _set_mujoco_gl()
     from libero.libero import benchmark, get_libero_path
     from libero.libero.envs import OffScreenRenderEnv
@@ -168,13 +140,13 @@ def make_env(suite_name: str, task_id: int, *, camera_height: int = 256, camera_
     return env, task
 
 
-def _libero_num_tasks(suite_name: str) -> int:
+def libero_num_tasks(suite_name: str) -> int:
     _set_mujoco_gl()
     from libero.libero import benchmark
     return benchmark.get_benchmark_dict()[suite_name]().get_num_tasks()
 
 
-def _libero_init_states(suite_name: str, task_id: int):
+def libero_init_states(suite_name: str, task_id: int):
     from libero.libero import benchmark
     return benchmark.get_benchmark_dict()[suite_name]().get_task_init_states(task_id)
 
@@ -188,17 +160,11 @@ def run_sweep(
     num_tasks_provider=None,
     writer_factory=None,
 ) -> list[RolloutResult]:
-    """Run the full suite/task/episode sweep. ``episode_id`` = ``f"{suite}/{task}/{init}/{seed}"``.
-
-    The four ``*_factory``/``*_provider`` seams default to real LIBERO; tests inject fakes to
-    exercise the iteration without sim. Standard protocol: 10 episodes/task across the 4 core
-    suites = 400 episodes. ``env.close()`` between tasks avoids leaking MuJoCo GL contexts.
-    """
     env_factory = env_factory or (
         lambda s, t: make_env(s, t, camera_height=cfg.camera_height, camera_width=cfg.camera_width, seed=cfg.seed)
     )
-    init_states_provider = init_states_provider or _libero_init_states
-    num_tasks_provider = num_tasks_provider or _libero_num_tasks
+    init_states_provider = init_states_provider or libero_init_states
+    num_tasks_provider = num_tasks_provider or libero_num_tasks
     writer_factory = writer_factory or (
         lambda: RolloutWriter(
             cfg.out_dir, cfg.frames_dir, cfg.videos_dir, run_id=cfg.run_id or "rollout",

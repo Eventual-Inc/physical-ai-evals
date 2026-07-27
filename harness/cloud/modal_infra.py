@@ -1,18 +1,9 @@
-"""Modal-free deployment infra — paths, HF cache env, weight resolution.
-
-Mirrors the conventions in daft-examples ``models/common/{modal_infra,weights}.py`` so this
-harness can drop into that repo as a model example. This module NEVER imports ``modal`` (the
-``@daft.cls`` rollout UDF imports it); the ``modal``-dependent registry (Volumes, function
-config) lives in ``harness/rollout/modal_app.py``.
-"""
-
 from __future__ import annotations
 
 import os
 import re
 from pathlib import Path
 
-# Canonical mount points inside Modal containers (match the daft-examples convention).
 APP_DIR = "/workspace"
 MODEL_CACHE_DIR = "/models"
 OUTPUT_DIR = "/outputs"

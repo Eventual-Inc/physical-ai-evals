@@ -1,111 +1,98 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# Distribution (PyPI): physical-ai-evals. The IMPORT package stays `harness` — a deliberate
-# dist≠import split (à la scikit-learn/sklearn): the template's core is name-neutral for
-# forks; the brand lives on the distribution. The `harness` console script matches.
+# PyPI distribution: physical-ai-evals. The import package stays `harness` (dist != import,
+# as scikit-learn/sklearn) so forks keep a name-neutral core.
 name = "physical-ai-evals"
 version = "0.1.0"
-description = "Starter kit for evaluating physical-AI policies on LIBERO-shaped benchmarks — reproducible VLA rollouts -> queryable parquet failure forensics (VLA-JEPA vs OpenVLA shipped)."
+description = "Evaluation harness for physical-AI policies on LIBERO-shaped benchmarks, with queryable rollout traces and versioned pilot analyses."
 readme = "README.md"
-# Core runs on 3.10–3.13. The canonical interpreter everywhere (dev + both GPU images) is
-# 3.12; the vla_jepa extra REQUIRES >=3.12 (lerobot). The old "LIBERO needs 3.8" is a myth.
-requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
+# Python 3.12 is the only runtime exercised by CI and both GPU images. Broaden this
+# only after adding a green version matrix.
+requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "Eventual" }]
-
-# Core deps = the lightweight contract layer (schema/writer/ingest-base/notebook read).
-# Everything heavy (policies, sim, dataset readers) is an OPTIONAL extra so the harness
-# imports and the smoke test run on a plain CPU box / CI without GPU stacks.
-dependencies = [
-  "pyarrow>=15",       # the schema IS a pyarrow schema; nightly daft needs modern pyarrow (24.x)
-  # numpy 1 AND 2 are both fine for the contract layer (the VLA-JEPA image runs numpy 2 in
-  # production). The <2.0 pin lives in the openvla extra where its reason lives (torch 2.2).
-  "numpy>=1.24",
-  # Floor = latest PyPI release. daft.datasets.{lerobot} + Hdf5File are nightly-only until the
-  # next release — dev installs use:  pip install daft --pre --extra-index-url https://nightly.daft.ai
-  "daft>=0.7.16",
-  "scikit-learn>=1.4", # KMeans/HDBSCAN for the failure-mode clustering (Daft has NO built-in)
-  "imageio[ffmpeg]>=2.34",  # mp4 rollout video capture (imageio.mimwrite)
+keywords = ["robotics", "vla", "libero", "evaluation", "benchmark", "daft", "physical-ai"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+
+# Core stays lightweight (schema / writer / ingest base). Everything heavy — policies, sim,
+# dataset readers — is an optional extra so the package imports and tests run on a CPU box.
+dependencies = [
+  "pyarrow>=15",       # the rollout schema is a pyarrow schema
+  "numpy>=1.24",       # 1.x and 2.x both work here; the <2 pin lives in the openvla extra
+  "daft>=0.7.17",      # floor carries daft.datasets.{lerobot,droid} + Hdf5File
+  "pydantic>=2.7",     # Episode/Step + rollout config models
+  "scikit-learn>=1.4", # KMeans/HDBSCAN for failure-mode clustering
+  "imageio[ffmpeg]>=2.34",  # mp4 rollout video capture
+]
+
+[project.urls]
+Homepage = "https://eventual-inc.github.io/physical-ai-evals/"
+Documentation = "https://eventual-inc.github.io/physical-ai-evals/"
+Repository = "https://github.com/Eventual-Inc/physical-ai-evals"
+Issues = "https://github.com/Eventual-Inc/physical-ai-evals/issues"
 
 [project.optional-dependencies]
-# --- the comparative notebook's embedding pass ---
 embed = [
-  "sentence-transformers>=3.0",  # text/image embeddings via daft.functions.ai.embed_*
+  "daft[transformers]>=0.7.17",  # text/image embeddings via daft.functions.ai.embed_*
 ]
-# --- LIBERO simulation. The "needs Python 3.8" lore is a MYTH (LIBERO's setup.py installs
-#     nothing) — VERIFIED on Modal at Python 3.12 in both GPU images. The wheel path
-#     (hf-libero, linux) ships LIBERO's code + bddl/assets/init_states; the clone path with
-#     the verified pin set lives in harness/rollout/modal_app.py (the source of truth). ---
 libero = [
   "hf-libero>=0.1.4; sys_platform == 'linux'",
 ]
-# --- OpenVLA baseline. Its transformers pin is load-bearing and CONFLICTS with VLA-JEPA;
-#     run OpenVLA in its OWN venv. ---
+# OpenVLA's transformers pin conflicts with VLA-JEPA's stack — the two policies need
+# separate envs/images. flash-attn is intentionally NOT listed: its sdist needs torch at
+# build time, which breaks `uv lock` and fresh-env pip installs alike. The policy runs on
+# sdpa; if you want flash-attn, install it manually afterwards:
+#   pip install flash-attn==2.5.5 --no-build-isolation
 openvla = [
-  "torch==2.2.0",          # no cp313 wheels -> [tool.uv] environments caps the lock at <3.13
+  "torch==2.2.0",          # Python support is intentionally scoped to the tested 3.12 runtime
   "numpy>=1.24,<2.0",      # torch 2.2 is numpy-1.x-compiled (_ARRAY_API crash on 2.x)
-  "transformers==4.40.1",  # NEWER transformers SILENTLY breaks remote predict_action
+  "transformers==4.40.1",  # newer transformers silently breaks remote predict_action
   "tokenizers==0.19.1",
   "timm==0.9.10",
   "accelerate>=0.25.0",
   "pillow>=10.0",          # OpenVLA processor builds PIL.Image from the frame
-  # flash-attn==2.5.5 is documented but install AFTER the editable install, and NOT on
-  # Apple Silicon/CPU (use attn_implementation='sdpa'/'eager' there).
 ]
-# --- VLA-JEPA headliner. The public repo uses StarVLA + a WebSocket policy server,
-#     not LeRobot's PreTrainedPolicy factory. Install github.com/ginwind/VLA-JEPA
-#     separately for the model server; this extra covers the lightweight client-side deps.
-# --- VLA-JEPA runs IN-PROCESS via the lerobot port (policies/vla_jepa merged on lerobot main
-#     2026-06; pinned at a git SHA until the next lerobot release). Requires Python >=3.12 and
-#     pulls the Qwen3-VL / transformers 5.4-5.6 stack -> its OWN env/image, separate from
-#     OpenVLA's 4.40.1 (see NOTES.md and harness/rollout/modal_vla_jepa_app.py). ---
-#     DELIBERATELY EMPTY (a pointer, like ingest_abc): the real install path is the Modal
-#     image (harness/rollout/modal_vla_jepa_app.py — the source of truth for the pins). On a
-#     linux GPU box:  pip install "lerobot[vla_jepa] @ git+https://github.com/huggingface/lerobot@052d329470ea8d5c98a4b4bd1f6c18abd0ac7c34"
-#     Why not a real extra: lerobot is a GIT dep whose own marker-conditional torch pins make
-#     uv's universal lock unsatisfiable in every [tool.uv] conflicts shape we tried (uv
-#     0.11.21-0.11.26 report "no version of torch==2.2.0" in the openvla split; a plain-PyPI
-#     transitive torch resolves fine). An empty extra keeps `uv lock`/`uv run` working for
-#     the whole template — see FRICTION_LOG #22.
+# Deliberately empty: lerobot is a git dep whose marker-conditional torch pins make uv's
+# universal lock unsatisfiable, so the Modal image (harness/modal_vla_jepa_app.py)
+# is the canonical install path. On a linux GPU box (requires Python >=3.12):
+#   pip install "lerobot[vla_jepa] @ git+https://github.com/huggingface/lerobot@052d329470ea8d5c98a4b4bd1f6c18abd0ac7c34"
 vla_jepa = []
-# --- dataset ingest. Strategy (NOTES.md): DROID/LeRobot delegate to Daft-native readers
-#     (PRs #7089/#7090); we OWN HDF5. NO TensorFlow anywhere — Daft has none either, and we
-#     parse raw-DROID's per-episode trajectory.h5 with our own HDF5 reader, not RLDS/tfds.
-ingest_hdf5 = ["h5py>=3.10"]                              # robomimic/LIBERO demos + raw-DROID trajectory.h5
-ingest_droid = ["h5py>=3.10", "daft[video]", "pillow"]   # daft.datasets.droid.raw() (raw DROID) + h5py for trajectory.h5
-ingest_lerobot = ["daft[video,huggingface]", "pillow"]   # daft.datasets.lerobot (v3.0); add "lerobot>=0.5.0" ONLY for the v2.1 fallback
-ingest_aloha = ["h5py>=3.10"]                             # ALOHA / Mobile ALOHA ACT-style HDF5 episodes
-ingest_egodex = ["h5py>=3.10"]                            # EgoDex HDF5 annotations; MP4 paths are referenced, not decoded
-ingest_abc = []                                           # ABC exported states_actions.bin episodes; raw MCAP conversion stays upstream
-# NOTE: daft.datasets.{droid,lerobot} arrive when #7089/#7090 land in a Daft release; our
-# pinned daft==0.7.15 does not ship them yet (the extras above name the runtime deps, not the API).
-modal = ["modal>=0.64"]   # `modal run harness/rollout/modal_app.py ...` (deployment only)
-dev = ["pytest>=8.0"]
+ingest_hdf5 = ["h5py>=3.10"]   # robomimic/LIBERO demo ingest
+modal = ["modal>=0.64"]        # deployment only
+analysis = [
+  "pandas>=2.1",
+  "matplotlib>=3.8",
+  "jupyterlab>=4.0",
+  "jupytext>=1.16",
+]
+# Torch is installed from the CPU index by `make setup`/CI so contributors do not
+# accidentally resolve a CUDA wheel on development machines.
+dev = ["pytest>=8.0", "h5py>=3.10", "pillow>=10.0"]
 
 [project.scripts]
-harness = "harness.cli:main"   # `harness rollout ...` / `harness ingest ...`
-
-[tool.uv]
-# uv's lock covers the verified interpreter range (canonical = 3.12, pinned in
-# .python-version). Core still pip-installs fine on 3.13 (requires-python >=3.10); this only
-# scopes uv lock/sync, where openvla's torch 2.2.0 (no cp313 wheels, no sdist) would make
-# the universal resolution unsatisfiable.
-environments = ["python_version >= '3.10' and python_version < '3.13'"]
+harness = "harness.cli:main"
 
 [dependency-groups]
-# uv installs the `dev` group by default -> `uv run pytest` works in a fresh clone.
-# (The [dev] extra below stays for pip users; same content.)
-dev = ["pytest>=8.0"]
+# uv installs this group by default. Policy-adapter tests additionally need the CPU
+# Torch wheel installed by `make setup`.
+dev = ["pytest>=8.0", "h5py>=3.10", "pillow>=10.0"]
 
 [tool.setuptools.packages.find]
 include = ["harness*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-ra --strict-markers"
 
 [tool.ruff]
 line-length = 100
@@ -118,11 +105,11 @@ extend-exclude = ["notebooks"]  # py:percent notebooks tolerate looser style
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
 ignore = [
-  "E501",  # long lines in docstrings/comments carry receipts; format handles code lines
+  "E501",  # long lines in docstrings/comments are fine; ruff format handles code lines
   "E712",  # `success == False` is a Daft expression idiom, not a bool comparison
 ]
 
 [tool.ty.rules]
-# Heavy deps (libero/lerobot/transformers/robosuite/modal) are LAZY optional imports by
-# design -- absent from the dev env. Warn, don't fail; real typos still surface in review.
+# Heavy deps (libero/lerobot/transformers/robosuite/modal) are lazy optional imports by
+# design and absent from the dev env. Warn, don't fail.
 unresolved-import = "warn"

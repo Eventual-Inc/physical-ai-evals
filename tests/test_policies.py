@@ -1,19 +1,18 @@
-"""Policy adapter tests — OpenVLA + VLA-JEPA plumbing via injected fake backends.
+"""Policy adapter tests — OpenVLA + VLA-JEPA plumbing via fake backends.
 
-No GPU / weights / torch-model / transformers / lerobot needed: each adapter takes an injected
-backend (OpenVLA ``_vla``/``_processor``; VLA-JEPA ``_policy``/``_preprocessor``/
-``_postprocessor``) so we verify prompt/batch construction, dtype/range contracts, action
-post-processing, and reset semantics — the parts that don't need real inference. Real-weight
-inference is exercised in the GPU env (Modal), not here.
+No GPU / weights / transformers / lerobot needed: OpenVLA takes injected ``_vla``/
+``_processor``; VLA-JEPA tests patch ``_load`` and wire a fake lerobot policy.
 """
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 
-from harness.policies.openvla import LIBERO_CHECKPOINTS, OpenVLAPolicy
-from harness.policies.vla_jepa import VLAJEPAPolicy
+from harness.policy.openvla import LIBERO_CHECKPOINTS, OpenVLAPolicy
+from harness.policy.vla_jepa import VLAJEPAPolicy
 
 # ------------------------------------------------------------------ fakes
 
@@ -103,7 +102,7 @@ def test_openvla_action_clipped_to_7():
 
 def test_openvla_gripper_rlds_to_libero():
     # predict_action returns RLDS convention: gripper in [0,1], ~1=open. LIBERO wants
-    # -1=open/+1=close. Regression for the 0/7-SR sweep (gripper could never open; NOTES.md).
+    # -1=open/+1=close. Without the remap the gripper can never open.
     for raw, expected in ((0.996, -1.0), (0.0, 1.0), (0.4, 1.0)):
         vla = _FakeVLA(action=np.array([0, 0, 0, 0, 0, 0, raw], np.float32))
         p = OpenVLAPolicy(model_id="x", device="cpu", _vla=vla, _processor=_FakeProcessor())
@@ -130,10 +129,19 @@ def test_openvla_checkpoint_table_consistent():
 
 # ------------------------------------------------------------------ VLA-JEPA (in-process lerobot)
 
+def _vlajepa(fake, *, pre=None, post=None):
+    with patch.object(VLAJEPAPolicy, "_load"):
+        p = VLAJEPAPolicy(device="cpu")
+    p._policy = fake
+    p._pre = pre if pre is not None else (lambda batch: batch)
+    p._post = post if post is not None else (lambda action: action)
+    return p
+
+
 def test_vlajepa_batch_contract():
     torch = pytest.importorskip("torch")
     fake = _FakeLRPolicy()
-    p = VLAJEPAPolicy(device="cpu", _policy=fake)
+    p = _vlajepa(fake)
     assert p.control_mode == "relative"
 
     p.reset("pick up the cup")
@@ -158,7 +166,7 @@ def test_vlajepa_batch_contract():
 def test_vlajepa_one_select_action_per_act():
     pytest.importorskip("torch")
     fake = _FakeLRPolicy()
-    p = VLAJEPAPolicy(device="cpu", _policy=fake)
+    p = _vlajepa(fake)
     p.reset("t")
     for _ in range(3):
         p.act(_obs())
@@ -179,7 +187,7 @@ def test_vlajepa_pre_post_pipelines_applied():
         seen["post_shape"] = tuple(action.shape)
         return action * 2.0
 
-    p = VLAJEPAPolicy(device="cpu", _policy=_FakeLRPolicy(), _preprocessor=pre, _postprocessor=post)
+    p = _vlajepa(_FakeLRPolicy(), pre=pre, post=post)
     p.reset("t")
     action = p.act(_obs())
     assert "observation.images.image" in seen["pre"]
@@ -192,7 +200,7 @@ def test_vlajepa_accepts_derotated_views():
     # rejects those unless the adapter copies to contiguous (regression: real GPU run 2026-07-02)
     pytest.importorskip("torch")
     fake = _FakeLRPolicy()
-    p = VLAJEPAPolicy(device="cpu", _policy=fake)
+    p = _vlajepa(fake)
     p.reset("t")
     base = np.arange(8 * 8 * 3, dtype=np.uint8).reshape(8, 8, 3)
     p.act({"image": base[::-1, ::-1], "wrist_image": base[::-1, ::-1], "instruction": ""})
@@ -202,7 +210,7 @@ def test_vlajepa_accepts_derotated_views():
 def test_vlajepa_state_omitted_when_absent():
     pytest.importorskip("torch")
     fake = _FakeLRPolicy()
-    p = VLAJEPAPolicy(device="cpu", _policy=fake)
+    p = _vlajepa(fake)
     p.reset("t")
     p.act(_obs(with_state=False))
     assert "observation.state" not in fake.batches[0]
@@ -210,7 +218,7 @@ def test_vlajepa_state_omitted_when_absent():
 
 def test_vlajepa_wrist_image_required():
     pytest.importorskip("torch")
-    p = VLAJEPAPolicy(device="cpu", _policy=_FakeLRPolicy())
+    p = _vlajepa(_FakeLRPolicy())
     p.reset("t")
     with pytest.raises(ValueError, match="wrist"):
         p.act({"image": np.zeros((8, 8, 3), np.uint8), "wrist_image": None})

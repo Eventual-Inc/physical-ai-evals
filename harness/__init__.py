@@ -1,21 +1,6 @@
-"""physical-ai-evals — reproducible VLA rollouts -> parquet for failure-mode mining.
-
-(Distribution: ``physical-ai-evals``; this import package is deliberately the name-neutral
-``harness`` so forks of the starter kit don't carry our branding — see pyproject.toml.)
-
-The wedge: a success rate is commodity; this turns thousands of rollouts into a
-queryable Daft DataFrame so you can answer *why* a VLA fails (failure-mode clustering),
-not just how often. Deliverable 1 of 3 (harness / notebook / blog).
-
-Public surface kept import-light on purpose: importing ``harness`` must NOT drag in
-torch / robosuite / lerobot / tensorflow / daft. Those live behind lazy imports in the
-policy, runner, and ingest adapters. Only the schema/config/contracts are re-exported.
-"""
-
 from __future__ import annotations
 
-from harness.config import EmbedConfig, IngestConfig, RolloutConfig
-from harness.schema import (
+from harness.core import (
     ACTION_DIM,
     COLUMNS,
     EMBEDDING_DIM,
@@ -23,10 +8,21 @@ from harness.schema import (
     SCHEMA_VERSION,
     STATE_DIM,
     TERMINAL_FAILURE_LABELS,
+    EmbedConfig,
+    Episode,
+    IngestConfig,
+    RolloutConfig,
+    RolloutWriter,
+    Step,
+    assert_emits_schema,
     empty_step_row,
     rollout_schema,
     validate_rows,
+    write_episode,
+    write_rows,
 )
+from harness.ingest import Hdf5Ingestor, Ingestor
+from harness.policy import OpenVLAPolicy, Policy, VLAJEPAPolicy
 
 __version__ = "0.1.0"
 
@@ -44,5 +40,16 @@ __all__ = [
     "RolloutConfig",
     "IngestConfig",
     "EmbedConfig",
+    "Episode",
+    "Step",
+    "Ingestor",
+    "Hdf5Ingestor",
+    "Policy",
+    "OpenVLAPolicy",
+    "VLAJEPAPolicy",
+    "RolloutWriter",
+    "write_episode",
+    "write_rows",
+    "assert_emits_schema",
     "__version__",
 ]
