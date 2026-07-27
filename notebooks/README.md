@@ -1,57 +1,36 @@
-# notebooks/ — comparative failure-mode notebook (OUTLINE ONLY)
+# Analysis notebooks
 
-> This is **deliverable 2 of 3** and a separate third of the month's budget. It is **not
-> built in this scaffold** — this file is the outline so the harness skeleton knows what
-> shape of parquet the notebook will consume. Do not implement the notebook here.
+The real-data analysis is maintained as a paired Jupytext notebook:
 
-**Planned file:** `notebooks/failure_modes.ipynb` (one notebook; keep it runnable
-top-to-bottom on a researcher's own `data/rollouts/`).
+- [`failure_modes.py`](failure_modes.py) is the reviewable source of record.
+- [`failure_modes.ipynb`](failure_modes.ipynb) is synchronized from that source for interactive
+  use.
 
-## The story the notebook tells (15 minutes of a researcher's attention)
+It reads the paired LIBERO-Spatial pilot artifact labeled `2026-07-02` and computes
+episode-level outcomes, per-task counts, paired outcomes, descriptive Wilson intervals, and
+automated behavioral **candidates** from per-step signals. The label is an artifact identifier;
+the execution timestamp was not recorded.
 
-"You ran two VLAs on LIBERO. One scores higher. **But _why_ does the loser fail?**
-Here's how Daft turns 800 rollouts into a clustered map of failure modes — and surfaces a
-re-grasp loop neither success rate nor a glance at a video would have told you about."
+Important interpretation limits:
 
-The headliner is **VLA-JEPA vs OpenVLA**; the hero screenshot is **automatic re-grasp
-detection**.
+- the pilot contains 10 fixed initial states per task, not the 50-trial reference evaluation;
+- stored/requested seed 7 does not describe the simulator seed; the referenced path used 0,
+  while the exact executed code is unavailable, so it is treated as 0/unverified;
+- policy RNG was not explicitly controlled or recorded;
+- all 17 raw `terminal_failure` values are `unlabeled`; and
+- `repeated_close_candidate` is a post-hoc signal rule, not a human-validated re-grasp, drop,
+  reacquisition, or causal diagnosis.
 
-## Outline
+`rollout-v1` rows are transition-aligned: image/state are from `obs_t`; action is `action_t`;
+reward, terminal flag, end-effector position, and gripper state are post-action values associated
+with `obs_{t+1}`. The terminal next frame is not stored. The notebook intentionally compares
+the commanded action with the post-action gripper signal, but the row is not a simultaneous
+sensor snapshot.
 
-1. **Load** — `df = daft.read_parquet("data/rollouts/*.parquet")`. One row per step;
-   `model`/`policy_type` distinguish the two policies. Show row count + the two success
-   rates side by side (the commodity number — establish it, then move past it).
-2. **Isolate the failures** — `df.where(df["success"] == False)`. This is the wedge: we
-   only mine the failures. Quick `groupby("policy_type").count()` to frame the gap.
-3. **Embed** — one representation per failed episode for clustering. Two paths (config’d
-   via `EmbedConfig`):
-   - text: `embed_text(col("instruction"))` (fast, CPU-friendly default for CI),
-   - image: a `@daft.cls` encoder over `frame_path` at the failure step (richer).
-   Materialize: `pdf = df.select("episode_id","embedding").to_pandas()`.
-4. **Cluster** — Daft has no built-in KMeans: `X = np.stack(pdf["embedding"])` →
-   `sklearn.cluster.KMeans/HDBSCAN` → attach `cluster_id` back via `daft.from_pydict` +
-   join. Write `clusters/` partitioned by `cluster_id`.
-5. **Name the clusters** — per cluster, show 3–4 representative rollout videos
-   (`video_path`) and the modal `terminal_failure`. This is the "wrong-object pile vs the
-   drop pile vs the re-grasp pile" reveal.
-6. **HERO MOMENT — re-grasp detection.** Without watching a single video, query the
-   per-step signal that the schema preserves precisely for this:
-   - gripper closes (`gripper_state` crosses to closed) →
-   - manipuland lifts (`object_poses[target].z` rises above table) →
-   - manipuland falls back / gripper-object distance jumps →
-   - gripper reopens then recloses.
-   Emit a per-episode event timeline `(grasp, lift, slip/drop, regrasp_attempt)`, label
-   those episodes `terminal_failure="re_grasp"`, and screenshot the count + one annotated
-   trajectory. **This is the blog/social image.**
-7. **Comparison payoff** — re-grasp rate VLA-JEPA vs OpenVLA. The headline isn't "X% vs
-   Y% success"; it's "OpenVLA's failures are N× more often slip-then-fumble re-grasps" —
-   an actionable _why_ a success rate can't give you.
+The checksummed source artifact is
+[`results/libero-spatial-pilot-2026-07-02/`](../results/libero-spatial-pilot-2026-07-02/).
+Read its manifest and limitations before reusing an aggregate.
 
-## Contract the notebook relies on (from `harness/schema.py`)
-
-- One row per step; episode fields denormalized → no joins to filter failures.
-- `gripper_state`, `gripper_action`, `eef_pos`, `object_poses` (JSON) present at every
-  step → re-grasp detection is a pure query, no re-simulation.
-- `frame_path` / `video_path` are paths (decoded lazily by Daft), not inline bytes.
-- `embedding` is a portable `list<float32>`; `.cast()` to `embedding(float32, DIM)` before
-  `cosine_distance`. `DIM` = `harness.schema.EMBEDDING_DIM` (shared with the harness).
+[`regrasp_demo.py`](regrasp_demo.py) is separate synthetic demonstration code. Its scripted
+scenarios are useful for exercising visualization and detector mechanics, but they are not
+empirical evidence about either policy and must not be combined with the pilot result.

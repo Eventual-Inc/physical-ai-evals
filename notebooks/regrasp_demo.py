@@ -19,8 +19,9 @@ from pathlib import Path
 
 import numpy as np
 
-from harness.ingest.base import Episode, Step
-from harness.writer import write_episode
+from harness.analysis.labels import detect_regrasp
+from harness.core.episode import Episode, Step
+from harness.core.writer import write_episode
 
 TARGET = "akita_black_bowl"
 rng = np.random.default_rng(0)
@@ -94,37 +95,6 @@ SCENARIOS = {
     "openvla": ["regrasp2", "regrasp1", "regrasp2", "regrasp1", "drop"],   # 4/5 re_grasp
     "vla_jepa": ["drop", "drop", "regrasp1", "drop", "nograsp"],           # 1/5 re_grasp
 }
-
-
-# --------------------------------------------------------------- re-grasp detector
-
-def detect_regrasp(obj_z, grip_closed, *, lift=0.05, drop=0.03):
-    """Label an episode and return its event timeline from the per-step signal.
-
-    grasp = gripper closes; lift = object rises above `lift`; drop = a lifted object falls below
-    `drop`; re-grasp = the gripper closes AGAIN after a drop. >=1 re-grasp -> 're_grasp'.
-    """
-    events, lifted, drops, regrasps, prev = [], False, 0, 0, False
-    for t, (z, c) in enumerate(zip(obj_z, grip_closed)):
-        if c and not prev:
-            events.append((t, "re-grasp" if drops > 0 else "grasp"))
-            regrasps += drops > 0
-        if z > lift and not lifted:
-            lifted = True
-            events.append((t, "lift"))
-        if lifted and z < drop:
-            lifted, drops = False, drops + 1
-            events.append((t, "drop"))
-        prev = c
-    if regrasps >= 1:
-        label = "re_grasp"
-    elif drops >= 1:
-        label = "drop_no_recover"
-    elif any(grip_closed):
-        label = "missed_target"
-    else:
-        label = "no_grasp"
-    return label, events, regrasps
 
 
 # --------------------------------------------------------------- run it through Daft

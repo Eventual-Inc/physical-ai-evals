@@ -1,33 +1,34 @@
-# Friction points — the condensed field guide
+# Friction points observed in the tested stacks
 
-**20 landmines between you and a reproducible VLA eval.** Symptom → fix, grouped by when it
-bites. This is the quick-reference layer; the chronological story is
-[`FRICTION_LOG.md`](FRICTION_LOG.md) and the deep per-topic detail is
-[`NOTES.md`](https://github.com/Eventual-Inc/physical-ai-evals/blob/main/NOTES.md).
+These are engineering observations from this repository's OpenVLA and VLA-JEPA/LIBERO
+environments, not general benchmark findings. A “fix” below means the pinned test stack built
+or ran after the change; it does not establish that the same intervention is correct for every
+model, simulator, operating system, or dependency revision. Pin and report the resulting
+environment rather than treating this page as a timeless compatibility guarantee.
 
 ## Build & environment (bites at image build / first import — loudly)
 
 | # | Symptom | Fix |
 |---|---------|-----|
-| 1 | "LIBERO conflicts with modern stacks" | Myth — its `setup.py` installs nothing; the scary `requirements.txt` is training-only. One env works |
+| 1 | Resolver reports a LIBERO conflict | In the [audited LIBERO revision](https://github.com/Lifelong-Robot-Learning/LIBERO/blob/8f1084e3132a39270c3a13ebe37270a43ece2a01/setup.py), `setup.py` does not declare the full training requirements. Install and test the runtime subset explicitly. OpenVLA and VLA-JEPA still use separate images here because their policy stacks conflict. |
 | 2 | EGL / "failed to create GL context" | Set `MUJOCO_GL=egl` (macOS: `cgl`) **before** any robosuite/mujoco import |
 | 3 | `evdev` build fails: `linux/input.h` missing | `apt install linux-libc-dev` (robosuite → pynput → evdev) |
-| 4 | `error: command 'clang' failed` on any C ext | CUDA *runtime* bases ship no compiler; Modal's `add_python` is clang-built → `apt install build-essential clang` |
+| 4 | `error: command 'clang' failed` while building an extension | The tested CUDA runtime image needed `build-essential` and `clang`; record the base-image digest because compiler availability varies. |
 | 5 | `egl_probe`: "CMake must be installed" | `apt install cmake` (`hf-libero` dep) |
-| 6 | `EOFError` on `import libero` in a container | LIBERO prompts `input()` on first import — bake its config at image build: `printf 'n\n' \| python -c 'import libero.libero'`. (Survived into the `hf-libero` wheel, too) |
-| 7 | LIBERO env construction dies on `matplotlib`/`einops` | `pip --no-deps` drops runtime deps only `libero.libero.envs` needs — import-only smoke tests under-test |
-| 20 | `uv lock`/`uv run` "No solution found" on a project that pip-installs fine | uv resolves **every** extra for **every** python/platform — one exotic (git-dep) extra bricks the lock for all users. Scope with `[tool.uv] environments`, park the exotic stack behind a pointer extra, pin `.python-version` (see [`FRICTION_LOG.md`](FRICTION_LOG.md) #22) |
+| 6 | `EOFError` on `import libero` in a non-interactive container | In the tested revision, first import may prompt for path configuration. Create the config during the image build (the VLA-JEPA image uses `printf 'n\n' \| python -c 'import libero.libero'`) and verify all resolved paths in a smoke test. |
+| 7 | LIBERO environment construction fails on a missing `matplotlib` or `einops` import | A `--no-deps` install omits packages reached only during environment construction. Add an environment-construction smoke test, not only an `import libero` test. |
+| 20 | `uv lock`/`uv run` "No solution found" on a project that pip-installs fine | uv resolves **every** extra for **every** python/platform — one exotic (git-dep) extra bricks the lock for all users. Scope with `[tool.uv] environments`, park the exotic stack behind a pointer extra, pin `.python-version` |
 
 ## Silent success-rate killers (nothing raises; the number is just wrong)
 
 | # | Symptom | Fix |
 |---|---------|-----|
-| 8 | **0% SR, every episode runs to the step cap** | RLDS gripper convention (0..1, ~1=open) fed raw into LIBERO (−1=open/+1=close): the hand can never open. Normalize [0,1]→[−1,1], binarize, **invert** (OpenVLA's own eval utils) |
-| 9 | SR quietly below published | Apply center-crop at eval (0.9 area, resize back) when the checkpoint trained with crop augmentation |
+| 8 | **0% SR, every episode runs to the step cap** | Check the gripper convention. OpenVLA's [reference evaluator](https://github.com/openvla/openvla/blob/c8f03f48af692657d3060c19588038c7220e9af9/experiments/robot/libero/run_libero_eval.py#L219-L225) normalizes, binarizes, and inverts its output before LIBERO. Match the evaluated checkpoint rather than applying this transformation universally. |
+| 9 | Success rate changes after an evaluation-code update | Verify whether the checkpoint was trained with crop augmentation. OpenVLA's reference evaluator defaults to center crop and asserts it for checkpoint names containing `image_aug`; preserve the resolved choice in the manifest. |
 | 10 | `unnorm_key` assertion (fine-tunes) / plausible flailing (base models) | For the LIBERO fine-tunes the key is the **suite name** (`libero_spatial`), not `<suite>_no_noops` |
 | 11 | `Failed to initialize NumPy: _ARRAY_API not found` | numpy 2 snuck in via a dependency bump (daft→pyarrow); torch 2.2 is numpy-1-compiled → pin `numpy==1.26.4` |
 | 12 | pip warns `opencv-python requires numpy>=2` | opencv 4.13 declares numpy≥2; pin `opencv-python==4.9.0.80` on a numpy-1 stack |
-| 13 | SR ~0, frames "look valid" | LIBERO renders agentview **180° rotated** vs released checkpoints — de-rotate `img[::-1, ::-1]` before the policy |
+| 13 | Success rate is low although stored frames look plausible | The pinned OpenVLA [LIBERO utility](https://github.com/openvla/openvla/blob/c8f03f48af692657d3060c19588038c7220e9af9/experiments/robot/libero/libero_utils.py#L50-L58) rotates agent-view images by 180 degrees to match training preprocessing. Confirm the required orientation for the specific checkpoint. |
 | 14 | SR wrecked, tensors well-formed | Model-side processor runs `do_rescale=False` → images must be float **[0, 1]**; 0–255 floats fail silently |
 
 ## Sweep & analysis killers (only appear at scale)
@@ -42,4 +43,6 @@ bites. This is the quick-reference layer; the chronological story is
 
 ---
 
-*None of the silent ones raise. All of them read as "the model is bad."*
+Several of these issues produced valid-shaped tensors and completed episodes in the tested
+stack. Treat a changed success rate as an observation to audit, not immediate evidence about a
+model or a particular layer of the harness.
