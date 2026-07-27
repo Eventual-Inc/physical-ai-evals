@@ -1,0 +1,3 @@
+include CITATION.cff
+include THIRD_PARTY_NOTICES.md
+recursive-include results/libero-spatial-pilot-2026-07-02 *
