@@ -1,9 +1,8 @@
-"""HDF5 ingest tests — robomimic/LIBERO demos and raw-DROID trajectory.h5.
+"""HDF5 ingest tests — robomimic/LIBERO demos.
 
-Self-contained: synthetic h5py fixtures, no real datasets / GCS / GPU / MP4 decode. Every
-adapter routes through ``Episode.to_step_rows`` -> ``ROLLOUT_SCHEMA``, so these assert both
-the per-format parsing AND that ingested data lands on the SAME canonical schema the rollout
-path emits (the property the strict schema buys vs. Daft's per-dataset passthrough scans).
+Self-contained: synthetic h5py fixtures, no real datasets / GPU / MP4 decode. The adapter
+routes through ``Episode.to_step_rows`` -> ``ROLLOUT_SCHEMA``, so these assert both the
+parsing and that ingested data lands on the same canonical schema the rollout path emits.
 """
 
 from __future__ import annotations
@@ -17,9 +16,8 @@ import pytest
 
 h5py = pytest.importorskip("h5py")
 
-from harness.ingest.droid import DroidIngestor, parse_trajectory_h5
-from harness.ingest.hdf5 import Hdf5Ingestor
-from harness.writer import assert_emits_schema, write_episode, write_rows
+from physical_ai_evals.core.writer import assert_emits_schema, write_episode, write_rows
+from physical_ai_evals.ingest.hdf5 import Hdf5Ingestor
 
 # --------------------------------------------------------------------------- fixtures
 
@@ -79,26 +77,54 @@ def _write_robomimic(path, *, native=False, with_obs=True, with_rewards=True,
                         with_rewards=with_rewards, with_dones=with_dones, success=success)
 
 
-def _write_droid_trajectory(path, *, T=4, action_group="action_dict", with_joints=True):
-    with h5py.File(path, "w") as f:
-        ag = f.create_group(action_group)
-        cart = np.arange(T * 6, dtype=np.float64).reshape(T, 6)
-        grip = np.linspace(0.0, 1.0, T, dtype=np.float64).reshape(T, 1)
-        ag.create_dataset("cartesian_position", data=cart)
-        ag.create_dataset("gripper_position", data=grip)
-        rs = f.create_group("observation").create_group("robot_state")
-        rs.create_dataset("cartesian_position", data=cart + 0.001)  # measured != commanded
-        rs.create_dataset("gripper_position", data=grip)
-        if with_joints:
-            rs.create_dataset("joint_positions", data=np.zeros((T, 7), np.float64))
-
-
 # ----------------------------------------------------------------------- robomimic/LIBERO
 
 def test_robomimic_integer_sort(tmp_path):
     _write_robomimic(tmp_path / "demos.hdf5")  # demo_0, demo_10, demo_2 on disk
     eps = list(Hdf5Ingestor().load(str(tmp_path / "demos.hdf5")))
     assert [int(e.episode_id.rsplit("/", 1)[1]) for e in eps] == [0, 2, 10]
+
+
+def test_robomimic_uses_daft_hdf5_reader(tmp_path, monkeypatch):
+    from daft.file import Hdf5File as RealHdf5File
+
+    calls = []
+
+    class TrackingHdf5File:
+        def __init__(self, path, io_config=None):
+            calls.append(("init", path))
+            self._inner = RealHdf5File(path, io_config=io_config)
+
+        def attrs(self, path):
+            calls.append(("attrs", path))
+            return self._inner.attrs(path)
+
+        def keys(self, path):
+            calls.append(("keys", path))
+            return self._inner.keys(path)
+
+        def metadata(self, path):
+            calls.append(("metadata", path))
+            return self._inner.metadata(path)
+
+        def read(self, paths):
+            calls.append(("read", paths))
+            return self._inner.read(paths)
+
+    _write_robomimic(
+        tmp_path / "demos.hdf5",
+        demos=[("demo_0", 3, True)],
+    )
+    monkeypatch.setattr("daft.file.Hdf5File", TrackingHdf5File)
+
+    episodes = list(Hdf5Ingestor().load(str(tmp_path / "demos.hdf5")))
+
+    assert len(episodes) == 1
+    assert ("metadata", "data/demo_0") in calls
+    reads = [paths for method, paths in calls if method == "read"]
+    assert len(reads) == 1
+    assert "data/demo_0/actions" in reads[0]
+    assert not any("image" in path or "rgb" in path for path in reads[0])
 
 
 def test_robomimic_success_derivation(tmp_path):
@@ -153,75 +179,21 @@ def test_robomimic_missing_obs(tmp_path):
     assert_emits_schema(write_rows(rows, tmp_path / "raw.parquet"))
 
 
-# ----------------------------------------------------------------------------- raw DROID
+# --------------------------------------------------------- cross-file canonical glob
 
-def test_droid_action_assembly(tmp_path):
-    _write_droid_trajectory(tmp_path / "trajectory.h5", T=4, action_group="action_dict")
-    meta = {"uuid": "abc123", "success": True, "current_task": "pick up the cup",
-            "trajectory_length": 4}
-    ep = parse_trajectory_h5(str(tmp_path / "trajectory.h5"), meta)
-    assert ep.episode_id == "droid/abc123"
-    assert ep.instruction == "pick up the cup"
-    assert ep.success is True and ep.num_steps == 4
-
-    rows = ep.to_step_rows(run_id="test")
-    assert rows[0]["control_mode"] == "absolute"      # DROID = absolute, not relative
-    assert rows[0]["source"] == "droid"
-    assert len(rows[0]["action"]) == 7                # concat(cart6, grip1)
-    np.testing.assert_allclose(rows[0]["action"], [0, 1, 2, 3, 4, 5, 0.0], rtol=1e-5)
-    np.testing.assert_allclose(rows[0]["eef_pos"], [0.001, 1.001, 2.001], rtol=1e-4)
-    assert abs(rows[0]["gripper_state"] - 0.0) < 1e-6  # measured gripper[0]
-    assert_emits_schema(write_rows(rows, tmp_path / "d.parquet"))
-
-
-def test_droid_action_group_fallback(tmp_path):
-    _write_droid_trajectory(tmp_path / "trajectory.h5", T=4, action_group="action")
-    ep = parse_trajectory_h5(str(tmp_path / "trajectory.h5"),
-                             {"uuid": "x", "success": False, "current_task": "t"})
-    assert ep.num_steps == 4 and ep.success is False
-
-
-def test_droid_schema_parity_media_null(tmp_path):
-    _write_droid_trajectory(tmp_path / "trajectory.h5", T=3)
-    ep = parse_trajectory_h5(str(tmp_path / "trajectory.h5"),
-                             {"uuid": "y", "success": True, "current_task": "c"})
-    rows = ep.to_step_rows(run_id="test")
-    assert_emits_schema(write_rows(rows, tmp_path / "d.parquet"))
-    for i, row in enumerate(rows):
-        assert row["frame_path"] is None and row["wrist_path"] is None
-        assert row["video_path"] is None
-        assert row["reward"] is None
-        assert row["done"] == (i == len(rows) - 1)
-
-
-def test_droid_ingestor_dir_glob(tmp_path):
-    ep_dir = tmp_path / "ep_0001"
-    ep_dir.mkdir()
-    _write_droid_trajectory(ep_dir / "trajectory.h5", T=3)
-    (ep_dir / "metadata_ep0001.json").write_text(
-        json.dumps({"uuid": "u1", "success": True, "current_task": "do x"})
-    )
-    eps = list(DroidIngestor().load(str(tmp_path)))
-    assert len(eps) == 1
-    assert eps[0].episode_id == "droid/u1" and eps[0].instruction == "do x"
-
-
-# --------------------------------------------------------- cross-source canonical glob
-
-def test_cross_source_failure_filter(tmp_path):
-    """One failing HDF5 demo + one successful DROID episode written to one dir; the wedge
-    query filter(success==False) selects exactly the HDF5 steps — no source-specific path."""
-    _write_robomimic(tmp_path / "demos.hdf5", demos=[("demo_0", 3, False)])
-    h_ep = next(iter(Hdf5Ingestor().load(str(tmp_path / "demos.hdf5"))))
-    _write_droid_trajectory(tmp_path / "trajectory.h5", T=2)
-    d_ep = parse_trajectory_h5(str(tmp_path / "trajectory.h5"),
-                               {"uuid": "d", "success": True, "current_task": "t"})
+def test_failure_filter_across_files(tmp_path):
+    """A failing demo and a successful demo from different files written to one dir; the
+    wedge query filter(success==False) selects exactly the failing episode's steps."""
+    _write_robomimic(tmp_path / "fail.hdf5", demos=[("demo_0", 3, False)])
+    fail_ep = next(iter(Hdf5Ingestor().load(str(tmp_path / "fail.hdf5"))))
+    _write_robomimic(tmp_path / "pass.hdf5", demos=[("demo_0", 2, True)])
+    pass_ep = next(iter(Hdf5Ingestor().load(str(tmp_path / "pass.hdf5"))))
 
     out_dir = tmp_path / "rollouts"
-    write_episode(h_ep, out_dir, run_id="t")
-    write_episode(d_ep, out_dir, run_id="t")
+    write_episode(fail_ep, out_dir, run_id="t")
+    write_episode(pass_ep, out_dir, run_id="t")
 
     table = pads.dataset(out_dir, format="parquet").to_table()   # one glob, unified schema
     failures = table.filter(pc.equal(table.column("success"), False))
     assert failures.num_rows == 3
-    assert set(failures.column("source").to_pylist()) == {"hdf5"}
+    assert set(failures.column("episode_id").to_pylist()) == {fail_ep.episode_id}

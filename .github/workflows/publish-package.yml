@@ -22,7 +22,23 @@ on:
         default: true
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+    - uses: astral-sh/setup-uv@v7
+      with:
+        python-version: "3.12"
+    - name: Install frozen development environment
+      run: make setup
+    - name: Test, lint, type check, and verify lock
+      run: make check
+    - name: Build docs strictly
+      run: make docs-build
+
   build:
+    needs: verify
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -40,8 +56,8 @@ jobs:
           echo "::error::tag ${GITHUB_REF_NAME} != pyproject version v${VERSION} — bump pyproject before tagging"
           exit 1
         fi
-    - name: Build wheel and sdist
-      run: uv build --sdist --wheel
+    - name: Clean, build, and inspect wheel and sdist
+      run: make build
     - uses: actions/upload-artifact@v4
       with:
         name: dist
@@ -96,8 +112,8 @@ jobs:
         [ -n "$ok" ]
         # 3) Smoke: import surface, version consistency (catches pyproject/__init__ drift),
         #    and the console-script entry point.
-        .venv/bin/python -c "import harness; assert harness.__version__ == '${V}', harness.__version__; import harness.schema, harness.writer; print('ok', harness.__version__)"
-        .venv/bin/harness --help > /dev/null
+        .venv/bin/python -c "import physical_ai_evals; assert physical_ai_evals.__version__ == '${V}', physical_ai_evals.__version__; import physical_ai_evals.core.schema, physical_ai_evals.core.writer; print('ok', physical_ai_evals.__version__)"
+        .venv/bin/physical-ai-evals --help > /dev/null
 
   publish-pypi:
     # Tag pushes always continue to prod (after the TestPyPI gate); manual dispatches

@@ -1,0 +1,33 @@
+name: Publish Hugging Face Dataset
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-hf-dataset
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_DATASET_REPO: ${{ vars.HF_DATASET_REPO || 'Eventual-Inc/physical-ai-evals-libero-spatial-pilot' }}
+      SOURCE_COMMIT: c1e39d7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - name: Publish verified historical rollout trace
+        run: >-
+          uv run --no-project
+          --with "huggingface-hub>=0.36.2"
+          --with "pyarrow>=15"
+          .github/scripts/publish_hf_dataset.py
