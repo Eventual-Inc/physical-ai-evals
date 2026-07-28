@@ -24,37 +24,46 @@ pip install -e ".[ingest_hdf5]"
 
 ## Query datasets
 
-LIBERO-Para and LIBERO-PRO are exposed as pinned Daft DataFrames. `raw()` queries the
-Hugging Face repository manifest. It does not download the benchmark payload.
+ALOHA, EgoDex, and ABC-130K use Daft's LeRobot v3 reader. Episode queries do not decode
+video; `raw()` returns the lazy frame table and decodes cameras only when requested.
+
+```python
+from physical_ai_evals.datasets import abc, aloha, egodex
+
+aloha.episodes().select("episode_index", "tasks", "length").show()
+
+egodex.catalog(split="test").limit(10).show()
+egodex.episodes("add_remove_lid", split="test").limit(5).show()
+
+abc.episodes(
+    repo_id=abc.SMOKE_REPO_ID,
+    revision=abc.SMOKE_REVISION,
+).limit(5).show()
+```
+
+The default sources are recorded at exact Hugging Face commits. Readers reject a changed
+repository head instead of silently querying different data.
+
+LIBERO-Para and LIBERO-PRO expose manifest-only task catalogs with revision-pinned BDDL paths:
 
 ```python
 import daft
 from physical_ai_evals.datasets import libero_para, libero_pro
 
 para = libero_para.raw()
-para_sample = para.where(daft.col("environment_task_id") == 3).limit(5)
-libero_para.instructions(para_sample).show()
+para = para.where(daft.col("environment_task_id") == 3).limit(5)
+libero_para.instructions(para).show()
 
 pro = libero_pro.raw()
-pro_sample = pro.where(
+pro = pro.where(
     (daft.col("suite") == "libero_spatial")
     & (daft.col("perturbation") == "lan")
 ).limit(5)
-libero_pro.instructions(pro_sample).show()
+libero_pro.instructions(pro).show()
 ```
 
-The returned `bddl_path` and `init_path` columns contain revision-pinned `hf://` URLs. Call
-`instructions()` only after filtering or limiting; it reads the selected BDDL files.
-
-Daft also provides a native DROID reader:
-
-```python
-from daft.datasets import droid
-
-episodes = droid.raw()
-```
-
-See [Dataset catalogs](docs/datasets.md) for schemas and revisions.
+Daft also provides `daft.datasets.droid.raw()` directly. See
+[Dataset catalogs](docs/datasets.md) for query behavior and source revisions.
 
 ## Published rollout trace
 

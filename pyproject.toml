@@ -27,7 +27,7 @@ classifiers = [
 dependencies = [
   "pyarrow>=15",       # the rollout schema is a pyarrow schema
   "numpy>=1.24",       # 1.x and 2.x both work here; the <2 pin lives in the openvla extra
-  "daft>=0.7.18",      # Hdf5File.read + daft.datasets.{lerobot,droid}
+  "daft>=0.7.21",      # Hdf5File.read + daft.datasets.{lerobot,droid}
   "huggingface-hub>=0.36.2",  # pinned Hub manifests for remote benchmark catalogs
   "pydantic>=2.7",     # Episode/Step + rollout config models
   "imageio[ffmpeg]>=2.34",  # mp4 rollout video capture
@@ -41,7 +41,7 @@ Issues = "https://github.com/Eventual-Inc/physical-ai-evals/issues"
 
 [project.optional-dependencies]
 embed = [
-  "daft[transformers]>=0.7.17",  # text/image embeddings via daft.functions.ai.embed_*
+  "daft[transformers]>=0.7.21",  # text/image embeddings via daft.functions.ai.embed_*
 ]
 libero = [
   "hf-libero>=0.1.4; sys_platform == 'linux'",
@@ -66,7 +66,7 @@ openvla = [
 # is the canonical install path. On a linux GPU box (requires Python >=3.12):
 #   pip install "lerobot[vla_jepa] @ git+https://github.com/huggingface/lerobot@052d329470ea8d5c98a4b4bd1f6c18abd0ac7c34"
 vla_jepa = []
-ingest_hdf5 = ["daft[hdf5]>=0.7.18"]  # robomimic/LIBERO demo ingest
+ingest_hdf5 = ["daft[hdf5]>=0.7.21"]  # robomimic/LIBERO demo ingest
 modal = ["modal>=0.64"]        # deployment only
 # Torch is installed from the CPU index by `make setup`/CI so contributors do not
 # accidentally resolve a CUDA wheel on development machines.

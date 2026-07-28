@@ -74,7 +74,7 @@ def _with_libero(image: modal.Image) -> modal.Image:
 
 def _with_pipeline(image: modal.Image) -> modal.Image:
     return (
-        image.pip_install("daft>=0.7.17", "huggingface_hub", "hf_xet", "numpy==1.26.4")
+        image.pip_install("daft>=0.7.21", "huggingface_hub", "hf_xet", "numpy==1.26.4")
         .env(hf_cache_env())
         .add_local_dir(".", remote_path=APP_DIR, copy=True, ignore=MODAL_LOCAL_DIR_IGNORE)
         .add_local_python_source("physical_ai_evals")

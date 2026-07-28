@@ -248,7 +248,7 @@ wheels = [
 
 [[package]]
 name = "daft"
-version = "0.7.18"
+version = "0.7.21"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fsspec" },
@@ -256,13 +256,12 @@ dependencies = [
     { name = "pyarrow" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/76/36/85ffdc882972a88964056ea6856d51cba207443b4d143d54d986d1588017/daft-0.7.18.tar.gz", hash = "sha256:6dd53a16aaca9c16fccec7763e259b942ff00d2a96b9a382985cb56d57416ef3", size = 3359615, upload-time = "2026-07-09T01:01:23.908Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b8/e0/457e3e2285fc4d97d49838e2b377958a4f112062ce31e9a47af43b185222/daft-0.7.18-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:bd83c9f284bb62a09912628ed4d7273ad8aa16fd8e047311312efc6026ce1c10", size = 55648464, upload-time = "2026-07-09T01:00:58.024Z" },
-    { url = "https://files.pythonhosted.org/packages/81/58/18da1c58d606d15a09487019601933cbc69c4dde70e698a073ff6fae7e05/daft-0.7.18-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:511e4078c2655a931974340d1f90b6892a804558cfc97f2c85adf9d9e2e95226", size = 51486766, upload-time = "2026-07-09T01:01:01.307Z" },
-    { url = "https://files.pythonhosted.org/packages/f9/85/72676e760e8387c03b78e4eb27172810ec00ebb47aceef153ab835c22319/daft-0.7.18-cp310-abi3-manylinux_2_24_aarch64.whl", hash = "sha256:0538578b7ff0c345f25310fb942eb9feafe5be07332d8d393fdd0a57b6d809d1", size = 53820711, upload-time = "2026-07-09T01:01:04.368Z" },
-    { url = "https://files.pythonhosted.org/packages/86/72/d38076455f832a40a9bf5d8eeae8e18794a255a9015ca8b6b59d7729ade7/daft-0.7.18-cp310-abi3-manylinux_2_24_x86_64.whl", hash = "sha256:9f4d1591776804b0c9db32ed13d6dd1c9220c27a1603692519db5d1d669b38e9", size = 56017539, upload-time = "2026-07-09T01:01:07.304Z" },
-    { url = "https://files.pythonhosted.org/packages/a3/26/13973f5591d1dea4497ac860e22f38f711c4fffd6129278a2935ee1e0953/daft-0.7.18-cp310-abi3-win_amd64.whl", hash = "sha256:8733c4ae21e0a10075bf6e29d1bafd40b7b0a629f3e105fe5d7202e90c06396a", size = 55171843, upload-time = "2026-07-09T01:01:10.891Z" },
+    { url = "https://files.pythonhosted.org/packages/12/8a/015e9461493aa47652348881480a9e311aa52aff955501ef1a3f5833e429/daft-0.7.21-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:e399b7f680d31c6d8b3e7cbfefc6d0a78410b565b46ab64970e54536e7246c12", size = 55709805, upload-time = "2026-07-17T20:35:45.494Z" },
+    { url = "https://files.pythonhosted.org/packages/88/c1/876bcfb45dc64640f956e9322e4b195cf816679fbb0ea75e149c199768c0/daft-0.7.21-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:8c58be1665e19339f2748e7bc03c7fb3667a5e2ef5735696eefc31e85661fb7f", size = 51558429, upload-time = "2026-07-17T20:35:48.959Z" },
+    { url = "https://files.pythonhosted.org/packages/61/26/e7820790b286aa7711846a40408aab09692b72ada10a9481e92ca14ee2f0/daft-0.7.21-cp310-abi3-manylinux_2_24_aarch64.whl", hash = "sha256:bad1a622db5ad592a84409171b8555b0020e46af6a1480286bb545355f570b75", size = 53880723, upload-time = "2026-07-17T20:35:51.869Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/8b/152f56f6da4315f6f09067368c8838c414dd1410e034c70c80e2d71b032e/daft-0.7.21-cp310-abi3-manylinux_2_24_x86_64.whl", hash = "sha256:12f4dc2df39a1849d350112a5088e12af5223ef45b558b355e3b874d473733c3", size = 56083959, upload-time = "2026-07-17T20:35:55.47Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/41/6a0814ebb930c21c6ad9b600d3778b7bb44ce72d60b3ccbeec131626a989/daft-0.7.21-cp310-abi3-win_amd64.whl", hash = "sha256:3295dedaf132e1e4fc04a1e0b1c2577546f24c6289d32cd60566af357a1b5cc3", size = 55190558, upload-time = "2026-07-17T20:35:58.435Z" },
 ]
 
 [package.optional-dependencies]
@@ -1197,9 +1196,9 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'openvla'", specifier = ">=0.25.0" },
-    { name = "daft", specifier = ">=0.7.18" },
-    { name = "daft", extras = ["hdf5"], marker = "extra == 'ingest-hdf5'", specifier = ">=0.7.18" },
-    { name = "daft", extras = ["transformers"], marker = "extra == 'embed'", specifier = ">=0.7.17" },
+    { name = "daft", specifier = ">=0.7.21" },
+    { name = "daft", extras = ["hdf5"], marker = "extra == 'ingest-hdf5'", specifier = ">=0.7.21" },
+    { name = "daft", extras = ["transformers"], marker = "extra == 'embed'", specifier = ">=0.7.21" },
     { name = "h5py", marker = "extra == 'dev'", specifier = ">=3.10" },
     { name = "hf-libero", marker = "sys_platform == 'linux' and extra == 'libero'", specifier = ">=0.1.4" },
     { name = "huggingface-hub", specifier = ">=0.36.2" },

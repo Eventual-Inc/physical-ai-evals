@@ -54,7 +54,7 @@ def vla_jepa_image() -> modal.Image:
         .apt_install(*_GL_APT)
         .pip_install(
             f"lerobot[vla_jepa,libero] @ {LEROBOT_PIN}",
-            "daft>=0.7.17",
+            "daft>=0.7.21",
             "huggingface_hub",
             "hf_xet",
             "imageio[ffmpeg]",
