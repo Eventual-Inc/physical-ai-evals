@@ -65,3 +65,11 @@ reader directly rather than wrapping it here.
 
 Dataset licenses and simulator dependencies are not installed or redistributed by these
 catalogs.
+
+## Published rollout trace
+
+The historical LIBERO-Spatial trace is stored in the
+[`Eventual-Inc/physical-ai-evals-libero-spatial-pilot`](https://huggingface.co/datasets/Eventual-Inc/physical-ai-evals-libero-spatial-pilot)
+Hugging Face dataset. Revision
+`ddb8a88fcc579ebf077a9ca2d1e026a7e1cf4429` contains 23,283 `rollout-v1` transition rows.
+Its dataset card documents the missing execution and model provenance.

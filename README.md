@@ -56,6 +56,23 @@ episodes = droid.raw()
 
 See [Dataset catalogs](docs/datasets.md) for schemas and revisions.
 
+## Published rollout trace
+
+The historical LIBERO-Spatial trace is hosted on
+[Hugging Face](https://huggingface.co/datasets/Eventual-Inc/physical-ai-evals-libero-spatial-pilot)
+rather than committed to this repository. Query the immutable published revision directly:
+
+```python
+import daft
+
+steps = daft.read_parquet(
+    "hf://datasets/Eventual-Inc/physical-ai-evals-libero-spatial-pilot"
+    "@ddb8a88fcc579ebf077a9ca2d1e026a7e1cf4429/steps.parquet"
+)
+```
+
+The dataset card records the trace's protocol and provenance limitations.
+
 ## Ingest HDF5 demonstrations
 
 The HDF5 adapter uses `daft.file.Hdf5File` and reads only the selected episodes and required
