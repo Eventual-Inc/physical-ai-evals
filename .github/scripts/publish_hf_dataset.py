@@ -6,6 +6,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.csv as pa_csv
+import pyarrow.parquet as pq
 from huggingface_hub import HfApi
 
 SOURCE_DIR = "results/libero-spatial-pilot-2026-07-02"
@@ -45,7 +48,7 @@ configs:
   - config_name: steps
     data_files: steps.parquet
   - config_name: episodes
-    data_files: episodes.csv
+    data_files: episodes.parquet
 ---
 
 # LIBERO-Spatial paired pilot
@@ -59,7 +62,7 @@ comparison. The artifact label `2026-07-02` is not a recorded execution timestam
 ## Files
 
 - `steps.parquet`: normalized `rollout-v1` transition rows.
-- `episodes.csv`: one row per policy and episode specification.
+- `episodes.parquet`: one row per policy and episode specification.
 - `failure_signatures.csv`: post-hoc candidate signals for failed episodes.
 - `summary.json`: descriptive aggregate counts.
 - `manifest.json`: recorded configuration and provenance limitations.
@@ -76,6 +79,9 @@ import daft
 steps = daft.read_parquet("hf://datasets/{repo_id}/steps.parquet")
 failures = steps.where(steps["success"] == False)
 failures.select("policy_type", "episode_id", "task_id", "step_idx").show()
+
+episodes = daft.read_parquet("hf://datasets/{repo_id}/episodes.parquet")
+episodes.select("policy_type", "task_id", "success", "num_steps").show()
 ```
 
 ## Provenance limits
@@ -102,21 +108,24 @@ def main() -> None:
         upload_dir = Path(temp_dir)
         source_checksums = git_file(source_commit, f"{SOURCE_DIR}/SHA256SUMS")
 
-        for name in SOURCE_FILES:
-            output_name = "ARTIFACT_README.md" if name == "README.md" else name
-            (upload_dir / output_name).write_bytes(
-                git_file(source_commit, f"{SOURCE_DIR}/{name}")
-            )
-
         expected = {}
         for line in source_checksums.decode().splitlines():
             digest, name = line.split("  ", 1)
             expected[name] = digest
+
         for name in SOURCE_FILES:
-            output_name = "ARTIFACT_README.md" if name == "README.md" else name
-            actual = sha256(upload_dir / output_name)
+            content = git_file(source_commit, f"{SOURCE_DIR}/{name}")
+            actual = hashlib.sha256(content).hexdigest()
             if actual != expected[name]:
                 raise RuntimeError(f"Checksum mismatch for {name}: {actual} != {expected[name]}")
+
+            if name == "episodes.csv":
+                episodes = pa_csv.read_csv(pa.BufferReader(content))
+                pq.write_table(episodes, upload_dir / "episodes.parquet")
+                continue
+
+            output_name = "ARTIFACT_README.md" if name == "README.md" else name
+            (upload_dir / output_name).write_bytes(content)
 
         (upload_dir / "SOURCE_SHA256SUMS").write_bytes(source_checksums)
         (upload_dir / "README.md").write_text(
@@ -144,6 +153,7 @@ def main() -> None:
             repo_type="dataset",
             folder_path=upload_dir,
             commit_message=f"Publish trace from physical-ai-evals@{source_commit}",
+            delete_patterns=["episodes.csv"],
         )
         print(f"Published https://huggingface.co/datasets/{repo_id}")
         print(f"Commit: {commit}")
