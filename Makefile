@@ -11,7 +11,7 @@ TWINE_VERSION ?= 6.2.0
 CHECK_WHEEL_CONTENTS_VERSION ?= 0.6.3
 
 .DEFAULT_GOAL := help
-.PHONY: help lock lock-check setup analysis-setup lint fmt typecheck test check docs docs-build build clean \
+.PHONY: help lock lock-check setup lint fmt typecheck test check docs docs-build build clean \
         smoke-openvla smoke-vla-jepa rollout-openvla rollout-vla-jepa
 
 help: ## List available targets
@@ -32,18 +32,15 @@ setup: ## Create the frozen dev venv (Python 3.12 + CPU Torch), mirroring CI
 		uv pip install torch==2.2.0; \
 	fi
 
-analysis-setup: ## Install the frozen notebook/analysis environment
-	uv sync --frozen --extra analysis --extra ingest_hdf5
-
 lint: ## ruff check
-	uvx ruff==$(RUFF_VERSION) check harness/ tests/
+	uvx ruff==$(RUFF_VERSION) check physical_ai_evals/ tests/ .github/scripts/
 
 fmt: ## ruff format + autofix
-	uvx ruff==$(RUFF_VERSION) format harness/ tests/
-	uvx ruff==$(RUFF_VERSION) check --fix harness/ tests/
+	uvx ruff==$(RUFF_VERSION) format physical_ai_evals/ tests/ .github/scripts/
+	uvx ruff==$(RUFF_VERSION) check --fix physical_ai_evals/ tests/ .github/scripts/
 
 typecheck: ## ty check (unresolved lazy imports downgraded to warnings)
-	uvx ty@$(TY_VERSION) check harness/ --exit-zero-on-warning
+	uvx ty@$(TY_VERSION) check physical_ai_evals/ --exit-zero-on-warning
 
 test: ## Run the CPU-only test suite
 	# The venv's python, not `uv run pytest`: the dev env is hand-composed (CPU torch on
@@ -69,16 +66,16 @@ clean: ## Remove build/test artifacts
 
 # --- Modal (one-time: `modal token new` + `modal secret create hf-token HF_TOKEN=...`) ---
 # The venv's modal, not a global CLI: `modal run` imports the app file locally, which pulls
-# in the harness package and its deps.
+# in the physical_ai_evals package and its dependencies.
 
 smoke-openvla: ## CPU image smoke test for the OpenVLA Modal app
-	$(VENV)/bin/modal run harness/modal_app.py --smoke-test
+	$(VENV)/bin/modal run physical_ai_evals/modal_app.py --smoke-test
 
 smoke-vla-jepa: ## CPU image smoke test for the VLA-JEPA Modal app
-	$(VENV)/bin/modal run harness/modal_vla_jepa_app.py --smoke-test
+	$(VENV)/bin/modal run physical_ai_evals/modal_vla_jepa_app.py --smoke-test
 
 rollout-openvla: ## OpenVLA sweep on Modal (SUITES=..., EPISODES=...)
-	$(VENV)/bin/modal run harness/modal_app.py --policy-type openvla --suites $(SUITES) --episodes $(EPISODES)
+	$(VENV)/bin/modal run physical_ai_evals/modal_app.py --policy-type openvla --suites $(SUITES) --episodes $(EPISODES)
 
 rollout-vla-jepa: ## VLA-JEPA sweep on Modal (SUITES=..., EPISODES=...)
-	$(VENV)/bin/modal run harness/modal_vla_jepa_app.py --suites $(SUITES) --episodes $(EPISODES)
+	$(VENV)/bin/modal run physical_ai_evals/modal_vla_jepa_app.py --suites $(SUITES) --episodes $(EPISODES)

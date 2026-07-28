@@ -17,20 +17,14 @@ venv/
 env/
 # `.python-version` is intentionally tracked: Python 3.12 is the tested runtime.
 
-# --- harness artifacts (large; never commit rollout data/media) ---
-data/            # rollouts/, frames/, videos/  (parquet + png + mp4)
+# --- local datasets and evaluation output ---
+data/
+results/
 *.parquet
 *.mp4
-*.png
 *.hdf5
-# but DO keep tiny committed fixtures if we add them:
+# Keep small test fixtures when needed.
 !tests/fixtures/**/*.parquet
-# blog/publication assets are committed:
-!docs/assets/*.png
-
-# Small, versioned research evidence bundles are intentionally committed.
-!results/
-!results/**
 
 # --- sim / training artifacts ---
 mujoco/

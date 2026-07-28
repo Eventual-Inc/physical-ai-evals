@@ -11,10 +11,10 @@ import numpy as np
 import pyarrow.parquet as pq
 import pytest
 
-from harness.bench.libero import run_episode, run_sweep
-from harness.core.config import RolloutConfig
-from harness.core.writer import RolloutWriter, assert_emits_schema
-from harness.policy.base import Policy
+from physical_ai_evals.bench.libero import run_episode, run_sweep
+from physical_ai_evals.core.config import RolloutConfig
+from physical_ai_evals.core.writer import RolloutWriter, assert_emits_schema
+from physical_ai_evals.policy.base import Policy
 
 
 class _FakeEnv:

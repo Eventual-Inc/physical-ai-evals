@@ -3,11 +3,9 @@ requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# PyPI distribution: physical-ai-evals. The import package stays `harness` (dist != import,
-# as scikit-learn/sklearn) so forks keep a name-neutral core.
 name = "physical-ai-evals"
 version = "0.1.0"
-description = "Evaluation harness for physical-AI policies on LIBERO-shaped benchmarks, with queryable rollout traces and versioned pilot analyses."
+description = "Tools for querying robot datasets and evaluating VLA policies on LIBERO."
 readme = "README.md"
 # Python 3.12 is the only runtime exercised by CI and both GPU images. Broaden this
 # only after adding a green version matrix.
@@ -29,9 +27,9 @@ classifiers = [
 dependencies = [
   "pyarrow>=15",       # the rollout schema is a pyarrow schema
   "numpy>=1.24",       # 1.x and 2.x both work here; the <2 pin lives in the openvla extra
-  "daft>=0.7.17",      # floor carries daft.datasets.{lerobot,droid} + Hdf5File
+  "daft>=0.7.18",      # Hdf5File.read + daft.datasets.{lerobot,droid}
+  "huggingface-hub>=0.36.2",  # pinned Hub manifests for remote benchmark catalogs
   "pydantic>=2.7",     # Episode/Step + rollout config models
-  "scikit-learn>=1.4", # KMeans/HDBSCAN for failure-mode clustering
   "imageio[ffmpeg]>=2.34",  # mp4 rollout video capture
 ]
 
@@ -63,24 +61,19 @@ openvla = [
   "pillow>=10.0",          # OpenVLA processor builds PIL.Image from the frame
 ]
 # Deliberately empty: lerobot is a git dep whose marker-conditional torch pins make uv's
-# universal lock unsatisfiable, so the Modal image (harness/modal_vla_jepa_app.py)
+# universal lock unsatisfiable, so the Modal image
+# (physical_ai_evals/modal_vla_jepa_app.py)
 # is the canonical install path. On a linux GPU box (requires Python >=3.12):
 #   pip install "lerobot[vla_jepa] @ git+https://github.com/huggingface/lerobot@052d329470ea8d5c98a4b4bd1f6c18abd0ac7c34"
 vla_jepa = []
-ingest_hdf5 = ["h5py>=3.10"]   # robomimic/LIBERO demo ingest
+ingest_hdf5 = ["daft[hdf5]>=0.7.18"]  # robomimic/LIBERO demo ingest
 modal = ["modal>=0.64"]        # deployment only
-analysis = [
-  "pandas>=2.1",
-  "matplotlib>=3.8",
-  "jupyterlab>=4.0",
-  "jupytext>=1.16",
-]
 # Torch is installed from the CPU index by `make setup`/CI so contributors do not
 # accidentally resolve a CUDA wheel on development machines.
 dev = ["pytest>=8.0", "h5py>=3.10", "pillow>=10.0"]
 
 [project.scripts]
-harness = "harness.cli:main"
+physical-ai-evals = "physical_ai_evals.cli:main"
 
 [dependency-groups]
 # uv installs this group by default. Policy-adapter tests additionally need the CPU
@@ -88,7 +81,7 @@ harness = "harness.cli:main"
 dev = ["pytest>=8.0", "h5py>=3.10", "pillow>=10.0"]
 
 [tool.setuptools.packages.find]
-include = ["harness*"]
+include = ["physical_ai_evals*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -97,7 +90,7 @@ addopts = "-ra --strict-markers"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = ["notebooks"]  # py:percent notebooks tolerate looser style
+extend-exclude = ["examples/notebooks"]  # Jupytext notebooks tolerate looser style
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E402"]  # pytest.importorskip legitimately precedes imports

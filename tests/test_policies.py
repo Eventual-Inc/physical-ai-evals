@@ -11,8 +11,8 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from harness.policy.openvla import LIBERO_CHECKPOINTS, OpenVLAPolicy
-from harness.policy.vla_jepa import VLAJEPAPolicy
+from physical_ai_evals.policy.openvla import LIBERO_CHECKPOINTS, OpenVLAPolicy
+from physical_ai_evals.policy.vla_jepa import VLAJEPAPolicy
 
 # ------------------------------------------------------------------ fakes
 

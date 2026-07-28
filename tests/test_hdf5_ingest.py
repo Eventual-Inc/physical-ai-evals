@@ -16,8 +16,8 @@ import pytest
 
 h5py = pytest.importorskip("h5py")
 
-from harness.core.writer import assert_emits_schema, write_episode, write_rows
-from harness.ingest.hdf5 import Hdf5Ingestor
+from physical_ai_evals.core.writer import assert_emits_schema, write_episode, write_rows
+from physical_ai_evals.ingest.hdf5 import Hdf5Ingestor
 
 # --------------------------------------------------------------------------- fixtures
 
@@ -83,6 +83,48 @@ def test_robomimic_integer_sort(tmp_path):
     _write_robomimic(tmp_path / "demos.hdf5")  # demo_0, demo_10, demo_2 on disk
     eps = list(Hdf5Ingestor().load(str(tmp_path / "demos.hdf5")))
     assert [int(e.episode_id.rsplit("/", 1)[1]) for e in eps] == [0, 2, 10]
+
+
+def test_robomimic_uses_daft_hdf5_reader(tmp_path, monkeypatch):
+    from daft.file import Hdf5File as RealHdf5File
+
+    calls = []
+
+    class TrackingHdf5File:
+        def __init__(self, path, io_config=None):
+            calls.append(("init", path))
+            self._inner = RealHdf5File(path, io_config=io_config)
+
+        def attrs(self, path):
+            calls.append(("attrs", path))
+            return self._inner.attrs(path)
+
+        def keys(self, path):
+            calls.append(("keys", path))
+            return self._inner.keys(path)
+
+        def metadata(self, path):
+            calls.append(("metadata", path))
+            return self._inner.metadata(path)
+
+        def read(self, paths):
+            calls.append(("read", paths))
+            return self._inner.read(paths)
+
+    _write_robomimic(
+        tmp_path / "demos.hdf5",
+        demos=[("demo_0", 3, True)],
+    )
+    monkeypatch.setattr("daft.file.Hdf5File", TrackingHdf5File)
+
+    episodes = list(Hdf5Ingestor().load(str(tmp_path / "demos.hdf5")))
+
+    assert len(episodes) == 1
+    assert ("metadata", "data/demo_0") in calls
+    reads = [paths for method, paths in calls if method == "read"]
+    assert len(reads) == 1
+    assert "data/demo_0/actions" in reads[0]
+    assert not any("image" in path or "rgb" in path for path in reads[0])
 
 
 def test_robomimic_success_derivation(tmp_path):

@@ -13,8 +13,8 @@ repository-code: https://github.com/Eventual-Inc/physical-ai-evals
 url: https://eventual-inc.github.io/physical-ai-evals/
 license: Apache-2.0
 abstract: >-
-  An evaluation harness for VLA policies on LIBERO with normalized episode records,
-  one-row-per-step Parquet traces, Modal execution paths, and explicit artifact provenance.
+  Tools for querying robot datasets and evaluating VLA policies on LIBERO with normalized
+  episode records and one-row-per-step Parquet traces.
 keywords:
   - robotics
   - vision-language-action models

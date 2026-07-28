@@ -1,7 +1,6 @@
 site_name: physical-ai-evals
 site_description: >-
-  The starter kit for evaluating physical-AI policies on LIBERO-shaped benchmarks —
-  reproducible VLA rollouts with queryable failure forensics.
+  Query robot datasets and evaluate VLA policies on LIBERO.
 site_url: https://eventual-inc.github.io/physical-ai-evals/
 repo_url: https://github.com/Eventual-Inc/physical-ai-evals
 repo_name: Eventual-Inc/physical-ai-evals
@@ -44,5 +43,6 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Evaluation patterns: EVAL_PATTERNS.md
-  - Friction points: FRICTION_POINTS.md
+  - Dataset catalogs: datasets.md
+  - Evaluation protocol: evaluation.md
+  - Troubleshooting: troubleshooting.md

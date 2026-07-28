@@ -112,8 +112,8 @@ jobs:
         [ -n "$ok" ]
         # 3) Smoke: import surface, version consistency (catches pyproject/__init__ drift),
         #    and the console-script entry point.
-        .venv/bin/python -c "import harness; assert harness.__version__ == '${V}', harness.__version__; import harness.core.schema, harness.core.writer; print('ok', harness.__version__)"
-        .venv/bin/harness --help > /dev/null
+        .venv/bin/python -c "import physical_ai_evals; assert physical_ai_evals.__version__ == '${V}', physical_ai_evals.__version__; import physical_ai_evals.core.schema, physical_ai_evals.core.writer; print('ok', physical_ai_evals.__version__)"
+        .venv/bin/physical-ai-evals --help > /dev/null
 
   publish-pypi:
     # Tag pushes always continue to prod (after the TestPyPI gate); manual dispatches

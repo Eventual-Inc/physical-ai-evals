@@ -12,8 +12,8 @@ import numpy as np
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from harness.core.episode import Episode, Step
-from harness.core.schema import (
+from physical_ai_evals.core.episode import Episode, Step
+from physical_ai_evals.core.schema import (
     ACTION_DIM,
     COLUMNS,
     ROLLOUT_SCHEMA,
@@ -21,7 +21,7 @@ from harness.core.schema import (
     empty_step_row,
     validate_rows,
 )
-from harness.core.writer import assert_emits_schema, write_rows
+from physical_ai_evals.core.writer import assert_emits_schema, write_rows
 
 
 def _toy_episode() -> Episode:

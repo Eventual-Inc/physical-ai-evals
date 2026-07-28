@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 from daft import Series
 
-import harness.cloud.rollout_udf as rollout_udf
-from harness.cloud.sweep import (
+import physical_ai_evals.cloud.rollout_udf as rollout_udf
+from physical_ai_evals.cloud.sweep import (
     OPENVLA_REVISIONS,
     enumerate_specs,
     evaluation_fingerprint,
@@ -19,8 +19,8 @@ from harness.cloud.sweep import (
     resolve_openvla_config,
     write_evaluation_manifest,
 )
-from harness.core.episode import Episode, Step
-from harness.core.writer import write_episode, write_rows
+from physical_ai_evals.core.episode import Episode, Step
+from physical_ai_evals.core.writer import write_episode, write_rows
 
 
 def _episode(*, model: str) -> Episode:
@@ -142,7 +142,7 @@ def test_write_rows_failure_preserves_previous_part_and_cleans_temp(tmp_path, mo
         path.write_bytes(b"partial")
         raise RuntimeError("simulated interrupted parquet write")
 
-    monkeypatch.setattr("harness.core.writer.pq.write_table", fail_after_partial_write)
+    monkeypatch.setattr("physical_ai_evals.core.writer.pq.write_table", fail_after_partial_write)
     with pytest.raises(RuntimeError, match="interrupted"):
         write_rows(rows, target)
 
@@ -188,11 +188,11 @@ def test_rollout_row_seed_controls_env_and_cache_key(tmp_path, monkeypatch):
             parquet_path="unused.parquet",
         )
 
-    monkeypatch.setattr("harness.bench.libero.make_env", fake_make_env)
+    monkeypatch.setattr("physical_ai_evals.bench.libero.make_env", fake_make_env)
     monkeypatch.setattr(
-        "harness.bench.libero.libero_init_states", lambda _suite, _task_id: [np.zeros(1)]
+        "physical_ai_evals.bench.libero.libero_init_states", lambda _suite, _task_id: [np.zeros(1)]
     )
-    monkeypatch.setattr("harness.bench.libero.run_episode", fake_run_episode)
+    monkeypatch.setattr("physical_ai_evals.bench.libero.run_episode", fake_run_episode)
 
     worker = worker_class(
         policy_type="openvla",
