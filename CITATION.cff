@@ -4,7 +4,7 @@ message: >-
   policy, and checkpoint papers relevant to your evaluation.
 type: software
 title: physical-ai-evals
-version: 0.1.0
+version: 0.2.0
 authors:
   - family-names: Kleven
     given-names: Everett
@@ -13,8 +13,8 @@ repository-code: https://github.com/Eventual-Inc/physical-ai-evals
 url: https://eventual-inc.github.io/physical-ai-evals/
 license: Apache-2.0
 abstract: >-
-  Tools for querying robot datasets and evaluating VLA policies on LIBERO with normalized
-  episode records and one-row-per-step Parquet traces.
+  Daft-native OpenVLA and VLA-JEPA evaluation on LIBERO, LIBERO-Para, and LIBERO-Pro
+  with normalized episode and transition traces.
 keywords:
   - robotics
   - vision-language-action models

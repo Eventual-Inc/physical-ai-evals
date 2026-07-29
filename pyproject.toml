@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "physical-ai-evals"
-version = "0.1.0"
-description = "Tools for querying robot datasets and evaluating VLA policies on LIBERO."
+version = "0.2.0"
+description = "Daft-native OpenVLA and VLA-JEPA evaluation on the LIBERO benchmark family."
 readme = "README.md"
 # Python 3.12 is the only runtime exercised by CI and both GPU images. Broaden this
 # only after adding a green version matrix.
@@ -22,12 +22,12 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
-# Core stays lightweight (schema / writer / ingest base). Everything heavy — policies, sim,
-# dataset readers — is an optional extra so the package imports and tests run on a CPU box.
+# Core stays light; policy and simulator stacks remain optional.
 dependencies = [
-  "daft[huggingface, hdf5, video]>=0.7.21",      # Hdf5File.read + daft.datasets.{lerobot,droid}
-  "pydantic>=2.7",     # Episode/Step + rollout config models
-  "imageio[ffmpeg]>=2.34",  # mp4 rollout video capture
+  "daft[huggingface,video]>=0.7.21,<0.8",
+  "huggingface-hub>=0.28",
+  "imageio[ffmpeg]>=2.34",
+  "numpy>=1.24",
 ]
 
 [project.urls]
@@ -37,11 +37,14 @@ Repository = "https://github.com/Eventual-Inc/physical-ai-evals"
 Issues = "https://github.com/Eventual-Inc/physical-ai-evals/issues"
 
 [project.optional-dependencies]
-embed = [
-  "daft[transformers]>=0.7.21",  # text/image embeddings via daft.functions.ai.embed_*
-]
 libero = [
-  "hf-libero>=0.1.4; sys_platform == 'linux'",
+  "libero @ git+https://github.com/Zxy-MLlab/LIBERO-PRO.git@eafdb809426b13153aa1e4c42d6601844217dfec ; sys_platform == 'linux'",
+  "robosuite==1.4.1; sys_platform == 'linux'",
+  "bddl==1.0.1; sys_platform == 'linux'",
+  "easydict==1.9; sys_platform == 'linux'",
+  "gym==0.25.2; sys_platform == 'linux'",
+  "mujoco==3.9.0; sys_platform == 'linux'",
+  "scipy==1.15.3; sys_platform == 'linux'",
 ]
 
 
@@ -61,14 +64,12 @@ openvla = [
 ]
 
 
-# Deliberately empty: lerobot is a git dep whose marker-conditional torch pins make uv's
-# universal lock unsatisfiable, so the Modal image
-# (physical_ai_evals/modal_vla_jepa_app.py)
-# is the canonical install path. On a linux GPU box (requires Python >=3.12):
+# Deliberately empty: LeRobot is a git dependency whose policy stack conflicts
+# with OpenVLA, so physical_ai_evals/modal.py is the canonical installation.
+# On a Linux GPU box (requires Python >=3.12):
 #   pip install "lerobot[vla_jepa] @ git+https://github.com/huggingface/lerobot@052d329470ea8d5c98a4b4bd1f6c18abd0ac7c34"
 vla_jepa = []
-ingest_hdf5 = ["daft[hdf5]>=0.7.21"]  # robomimic/LIBERO demo ingest
-modal = ["modal>=0.64"]        # deployment only
+modal = ["modal>=1.5,<2"]        # deployment only
 
 
 # Torch is installed from the CPU index by `make setup`/CI so contributors do not
@@ -81,7 +82,7 @@ physical-ai-evals = "physical_ai_evals.cli:main"
 [dependency-groups]
 # uv installs this group by default. Policy-adapter tests additionally need the CPU
 # Torch wheel installed by `make setup`.
-dev = ["pytest>=8.0", "h5py>=3.10", "pillow>=10.0"]
+dev = ["pytest>=8.0", "pillow>=10.0"]
 
 [tool.uv]
 exclude-newer = "7 days"

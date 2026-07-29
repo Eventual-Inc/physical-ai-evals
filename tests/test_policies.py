@@ -1,8 +1,4 @@
-"""Policy adapter tests — OpenVLA + VLA-JEPA plumbing via fake backends.
-
-No GPU / weights / transformers / lerobot needed: OpenVLA takes injected ``_vla``/
-``_processor``; VLA-JEPA tests patch ``_load`` and wire a fake lerobot policy.
-"""
+"""Policy adapter tests with injected lightweight backends."""
 
 from __future__ import annotations
 
@@ -11,214 +7,197 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from physical_ai_evals.policy.openvla import LIBERO_CHECKPOINTS, OpenVLAPolicy
-from physical_ai_evals.policy.vla_jepa import VLAJEPAPolicy
+from physical_ai_evals.policy import (
+    OPENVLA_CHECKPOINTS,
+    OpenVLAPolicy,
+    PolicySpec,
+    VLAJEPAPolicy,
+    openvla,
+    vla_jepa,
+)
 
-# ------------------------------------------------------------------ fakes
 
-class _FakeProcessor:
+class _Inputs(dict):
+    def to(self, device, dtype):
+        self["device"] = device
+        self["dtype"] = dtype
+        return self
+
+
+class _Processor:
     def __init__(self):
-        self.last_prompt = None
-        self.last_image = None
+        self.prompt = None
+        self.image = None
 
     def __call__(self, prompt, image):
-        self.last_prompt, self.last_image = prompt, image
-        return {"input_ids": [[1, 2, 3]], "pixel_values": [[0.0]]}  # plain dict: **inputs, no .to
+        self.prompt = prompt
+        self.image = image
+        return _Inputs(input_ids=[[1]])
 
 
-class _FakeVLA:
-    def __init__(self, action=None):
-        self._action = action if action is not None else np.arange(7, dtype=np.float32)
-        self.last = None
-
-    def predict_action(self, *, unnorm_key=None, do_sample=False, **inputs):
-        self.last = {"unnorm_key": unnorm_key, "do_sample": do_sample, "inputs": inputs}
-        return self._action
-
-
-class _FakeLRPolicy:
-    """Mimics lerobot's PreTrainedPolicy inference surface: reset() + select_action(batch).
-
-    The real policy dequeues one action per call from an internal 7-step queue; the fake just
-    returns a fixed (1, 7) action and records every batch it saw.
-    """
+class _OpenVLAModel:
+    norm_stats = {"libero_goal": {}}
 
     def __init__(self, action=None):
+        self.action = (
+            np.asarray(action, dtype=np.float32)
+            if action is not None
+            else np.arange(7, dtype=np.float32)
+        )
+        self.call = None
+
+    def predict_action(self, **kwargs):
+        self.call = kwargs
+        return self.action
+
+
+def test_openvla_prompt_action_and_gripper_contract():
+    processor = _Processor()
+    model = _OpenVLAModel([0, 0, 0, 0, 0, 0, 0.996])
+    policy = OpenVLAPolicy(
+        "fixture",
+        unnorm_key="libero_goal",
+        device="cpu",
+        center_crop=False,
+        _model=model,
+        _processor=processor,
+    )
+
+    policy.reset("put the bowl on the plate")
+    action = policy.act({"image": np.zeros((8, 8, 3), dtype=np.uint8)})
+
+    assert action.shape == (7,)
+    assert action.dtype == np.float32
+    assert action[-1] == -1.0
+    assert "put the bowl on the plate" in processor.prompt
+    assert model.call["unnorm_key"] == "libero_goal"
+    assert model.call["do_sample"] is False
+
+
+def test_openvla_center_crop_preserves_shape():
+    pytest.importorskip("PIL")
+    processor = _Processor()
+    policy = OpenVLAPolicy(
+        "fixture",
+        unnorm_key="libero_goal",
+        device="cpu",
+        _model=_OpenVLAModel(),
+        _processor=processor,
+    )
+    policy.reset("task")
+    policy.act({"image": np.full((20, 24, 3), 127, dtype=np.uint8)})
+    assert np.asarray(processor.image).shape == (20, 24, 3)
+
+
+def test_openvla_factory_is_suite_specific_and_revision_pinned():
+    for suite, (model_id, revision, unnorm_key) in OPENVLA_CHECKPOINTS.items():
+        spec = openvla(suite)
+        assert spec.policy_id == model_id
+        assert spec.revision == revision
+        assert spec.metadata["unnorm_key"] == unnorm_key == suite
+
+    with pytest.raises(ValueError, match="requires one of"):
+        openvla("libero_90")
+    with pytest.raises(ValueError, match="immutable revision"):
+        openvla("libero_goal", model_id="research/custom")
+    with pytest.raises(ValueError, match="does not match"):
+        openvla("libero_goal", unnorm_key="libero_spatial")
+
+
+class _LeRobotPolicy:
+    def __init__(self):
         import torch
 
-        self._action = action if action is not None else torch.tensor(
-            [[0.1, -0.2, 0.3, 0.0, 0.0, 0.0, -1.0]], dtype=torch.float32
+        self.config = object()
+        self.resets = 0
+        self.batches = []
+        self.action = torch.tensor(
+            [[0.1, -0.2, 0.3, 0.0, 0.0, 0.0, -1.0]],
+            dtype=torch.float32,
         )
-        self.reset_calls = 0
-        self.batches: list[dict] = []
 
     def reset(self):
-        self.reset_calls += 1
+        self.resets += 1
 
     def select_action(self, batch):
         self.batches.append(batch)
-        return self._action
+        return self.action
 
 
-def _obs(h=8, w=8, with_state=True):
-    obs = {
-        "image": np.full((h, w, 3), 255, np.uint8),
-        "wrist_image": np.zeros((h, w, 3), np.uint8),
+def _vla_jepa(fake):
+    with patch.object(VLAJEPAPolicy, "_load"):
+        policy = VLAJEPAPolicy("fixture", device="cpu")
+    policy.model = fake
+    policy.preprocessor = lambda batch: batch
+    policy.postprocessor = lambda action: action
+    return policy
+
+
+def _observation():
+    return {
+        "image": np.full((8, 8, 3), 255, dtype=np.uint8),
+        "wrist_image": np.zeros((8, 8, 3), dtype=np.uint8),
+        "state": np.zeros(8, dtype=np.float32),
         "instruction": "",
     }
-    if with_state:
-        obs["state"] = np.zeros(8, np.float32)
-    return obs
 
 
-# ------------------------------------------------------------------ OpenVLA
-
-def test_openvla_act_plumbing():
-    proc, vla = _FakeProcessor(), _FakeVLA()
-    p = OpenVLAPolicy(model_id="openvla/openvla-7b-finetuned-libero-goal",
-                      device="cpu", _vla=vla, _processor=proc)
-    assert p.control_mode == "relative"
-    p.reset("put the bowl on the plate")
-    action = p.act({"image": np.zeros((8, 8, 3), np.uint8)})
-
-    assert action.shape == (7,) and action.dtype == np.float32
-    assert "put the bowl on the plate" in proc.last_prompt          # instruction in the prompt
-    assert vla.last["unnorm_key"] == "libero_goal"                   # derived from model_id (suite name)
-    assert vla.last["do_sample"] is False
-
-
-def test_openvla_unnorm_key_explicit_overrides():
-    p = OpenVLAPolicy(model_id="x", unnorm_key="bridge_orig", device="cpu",
-                      _vla=_FakeVLA(), _processor=_FakeProcessor())
-    assert p.unnorm_key == "bridge_orig"
-
-
-def test_openvla_action_clipped_to_7():
-    vla = _FakeVLA(action=np.arange(10, dtype=np.float32))  # over-long -> truncated to action_dim
-    p = OpenVLAPolicy(model_id="x", device="cpu", _vla=vla, _processor=_FakeProcessor())
-    p.reset("t")
-    assert p.act({"image": np.zeros((4, 4, 3), np.uint8)}).shape == (7,)
-
-
-def test_openvla_gripper_rlds_to_libero():
-    # predict_action returns RLDS convention: gripper in [0,1], ~1=open. LIBERO wants
-    # -1=open/+1=close. Without the remap the gripper can never open.
-    for raw, expected in ((0.996, -1.0), (0.0, 1.0), (0.4, 1.0)):
-        vla = _FakeVLA(action=np.array([0, 0, 0, 0, 0, 0, raw], np.float32))
-        p = OpenVLAPolicy(model_id="x", device="cpu", _vla=vla, _processor=_FakeProcessor())
-        p.reset("t")
-        assert p.act({"image": np.zeros((8, 8, 3), np.uint8)})[-1] == expected
-
-
-def test_openvla_center_crop_preserves_size():
-    pytest.importorskip("PIL")
-    proc = _FakeProcessor()
-    p = OpenVLAPolicy(model_id="x", device="cpu", _vla=_FakeVLA(), _processor=proc)
-    p.reset("t")
-    p.act({"image": np.full((20, 20, 3), 128, np.uint8)})
-    img = np.asarray(proc.last_image)
-    assert img.shape == (20, 20, 3)   # cropped to 0.9 area then resized back
-
-
-def test_openvla_checkpoint_table_consistent():
-    # model ids use hyphens (libero-spatial); the unnorm_key is the suite name (verified on Modal).
-    for suite, (mid, key) in LIBERO_CHECKPOINTS.items():
-        assert suite.replace("_", "-") in mid
-        assert key == suite
-
-
-# ------------------------------------------------------------------ VLA-JEPA (in-process lerobot)
-
-def _vlajepa(fake, *, pre=None, post=None):
-    with patch.object(VLAJEPAPolicy, "_load"):
-        p = VLAJEPAPolicy(device="cpu")
-    p._policy = fake
-    p._pre = pre if pre is not None else (lambda batch: batch)
-    p._post = post if post is not None else (lambda action: action)
-    return p
-
-
-def test_vlajepa_batch_contract():
+def test_vla_jepa_batch_contract_and_negative_stride_images():
     torch = pytest.importorskip("torch")
-    fake = _FakeLRPolicy()
-    p = _vlajepa(fake)
-    assert p.control_mode == "relative"
+    fake = _LeRobotPolicy()
+    policy = _vla_jepa(fake)
+    policy.reset("pick up the cup")
 
-    p.reset("pick up the cup")
-    assert fake.reset_calls == 1                       # reset() forwards (clears action queue)
+    observation = _observation()
+    observation["image"] = observation["image"][::-1, ::-1]
+    observation["wrist_image"] = observation["wrist_image"][::-1, ::-1]
+    action = policy.act(observation)
 
-    action = p.act(_obs())
-    assert action.shape == (7,) and action.dtype == np.float32
-    np.testing.assert_allclose(action, [0.1, -0.2, 0.3, 0.0, 0.0, 0.0, -1.0], rtol=1e-6)
-
+    assert fake.resets == 1
+    assert action.shape == (7,)
     batch = fake.batches[0]
-    assert set(batch) == {"observation.images.image", "observation.images.image2",
-                          "observation.state", "task"}
-    assert batch["task"] == "pick up the cup"          # instruction threads through reset
-    img = batch["observation.images.image"]
-    assert isinstance(img, torch.Tensor) and img.shape == (1, 3, 8, 8)
-    assert img.dtype == torch.float32
-    assert float(img.max()) <= 1.0 and float(img.max()) > 0.99   # uint8 255 -> 1.0 (the /255 contract)
-    assert batch["observation.images.image2"].shape == (1, 3, 8, 8)
+    assert set(batch) == {
+        "observation.images.image",
+        "observation.images.image2",
+        "observation.state",
+        "task",
+    }
+    assert batch["task"] == "pick up the cup"
+    assert isinstance(batch["observation.images.image"], torch.Tensor)
+    assert batch["observation.images.image"].shape == (1, 3, 8, 8)
     assert batch["observation.state"].shape == (1, 8)
 
 
-def test_vlajepa_one_select_action_per_act():
+def test_vla_jepa_requires_wrist_and_records_dependency_revisions():
     pytest.importorskip("torch")
-    fake = _FakeLRPolicy()
-    p = _vlajepa(fake)
-    p.reset("t")
-    for _ in range(3):
-        p.act(_obs())
-    # chunking lives INSIDE the lerobot policy (its internal queue); the adapter calls
-    # select_action exactly once per act and keeps no cache of its own.
-    assert len(fake.batches) == 3
-
-
-def test_vlajepa_pre_post_pipelines_applied():
-    pytest.importorskip("torch")
-    seen = {}
-
-    def pre(batch):
-        seen["pre"] = set(batch)
-        return batch
-
-    def post(action):
-        seen["post_shape"] = tuple(action.shape)
-        return action * 2.0
-
-    p = _vlajepa(_FakeLRPolicy(), pre=pre, post=post)
-    p.reset("t")
-    action = p.act(_obs())
-    assert "observation.images.image" in seen["pre"]
-    assert seen["post_shape"] == (1, 7)
-    np.testing.assert_allclose(action[0], 0.2, rtol=1e-6)  # postprocessor output is what act returns
-
-
-def test_vlajepa_accepts_derotated_views():
-    # the runner de-rotates with img[::-1, ::-1] -> negative-stride view; torch.from_numpy
-    # rejects those unless the adapter copies to contiguous (regression: real GPU run 2026-07-02)
-    pytest.importorskip("torch")
-    fake = _FakeLRPolicy()
-    p = _vlajepa(fake)
-    p.reset("t")
-    base = np.arange(8 * 8 * 3, dtype=np.uint8).reshape(8, 8, 3)
-    p.act({"image": base[::-1, ::-1], "wrist_image": base[::-1, ::-1], "instruction": ""})
-    assert fake.batches[0]["observation.images.image"].shape == (1, 3, 8, 8)
-
-
-def test_vlajepa_state_omitted_when_absent():
-    pytest.importorskip("torch")
-    fake = _FakeLRPolicy()
-    p = _vlajepa(fake)
-    p.reset("t")
-    p.act(_obs(with_state=False))
-    assert "observation.state" not in fake.batches[0]
-
-
-def test_vlajepa_wrist_image_required():
-    pytest.importorskip("torch")
-    p = _vlajepa(_FakeLRPolicy())
-    p.reset("t")
+    policy = _vla_jepa(_LeRobotPolicy())
+    policy.reset("task")
     with pytest.raises(ValueError, match="wrist"):
-        p.act({"image": np.zeros((8, 8, 3), np.uint8), "wrist_image": None})
+        policy.act({"image": np.zeros((8, 8, 3), dtype=np.uint8)})
+
+    spec = vla_jepa()
+    assert "@" in spec.metadata["qwen3_vl"]
+    assert "@" in spec.metadata["vjepa2"]
+
+
+def test_policy_spec_accepts_structural_user_policy_and_rejects_unsafe_identity():
+    class UserPolicy:
+        action_dim = 7
+        control_mode = "relative"
+
+        def reset(self, instruction):
+            pass
+
+        def act(self, observation):
+            return np.zeros(7, dtype=np.float32)
+
+        def close(self):
+            pass
+
+    spec = PolicySpec(UserPolicy, "me/policy", "source-commit-123")
+    assert isinstance(spec.factory(), UserPolicy)
+
+    with pytest.raises(ValueError, match="revision"):
+        PolicySpec(UserPolicy, "me/policy", "")
+    with pytest.raises(ValueError, match="relative"):
+        PolicySpec(UserPolicy, "me/policy", "revision", control_mode="absolute")

@@ -1,188 +1,159 @@
+"""Command-line entrypoint for local evaluation and result inspection."""
 
 from __future__ import annotations
 
 import argparse
-import datetime as _dt
 from pathlib import Path
 
-from physical_ai_evals.core.config import SUITE_MAX_STEPS, IngestConfig, RolloutConfig
 
-
-def _auto_run_id(prefix: str) -> str:
-    return f"{prefix}-{_dt.datetime.now():%Y%m%d-%H%M%S}"
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
         prog="physical-ai-evals",
-        description="Query datasets and write normalized VLA rollout records.",
+        description="Evaluate OpenVLA or VLA-JEPA on the LIBERO benchmark family.",
     )
-    sub = p.add_subparsers(dest="command", required=True)
+    commands = parser.add_subparsers(dest="command", required=True)
 
-    r = sub.add_parser("rollout", help="run a policy through LIBERO -> rollout parquet")
-    r.add_argument("--policy", required=True, choices=["openvla", "vla_jepa"],
-                   help="which VLA backend to roll out")
-    r.add_argument("--suite", default="libero_spatial",
-                   help="one LIBERO suite key (default: libero_spatial)")
-    r.add_argument("--episodes", type=int, default=50,
-                   help="trials per task (canonical protocol = 50)")
-    r.add_argument("--task-ids", default=None,
-                   help="comma-separated task ids; default = all tasks in each suite")
-    r.add_argument("--seed", type=int, default=7)
-    r.add_argument("--control-mode", default="relative", choices=["relative"],
-                   help="action convention (only the implemented relative mode is accepted)")
-    r.add_argument("--model-id", default=None, help="override the policy checkpoint id")
-    r.add_argument("--model-revision", default=None,
-                   help="immutable 40-character Hugging Face commit SHA")
-    r.add_argument("--unnorm-key", default=None,
-                   help="OpenVLA action unnormalization key (the SUITE name, e.g. libero_goal)")
-    r.add_argument("--device", default="cuda", choices=["cuda", "cpu", "mps"])
-    r.add_argument("--out", type=Path, default=Path("data/rollouts"))
-    r.add_argument("--run-id", default=None)
-    r.add_argument("--dry-run", action="store_true",
-                   help="print the resolved plan; do not import policy/env stacks")
-    r.set_defaults(func=_cmd_rollout)
-
-    i = sub.add_parser("ingest", help="normalize a dataset -> rollout parquet")
-    i.add_argument("--source", required=True, choices=["hdf5"])
-    i.add_argument("--input", required=True, help="path to a robomimic/LIBERO .hdf5 demo file")
-    i.add_argument("--out", type=Path, default=Path("data/rollouts"))
-    i.add_argument("--limit", type=int, default=None, help="cap episodes (smoke tests)")
-    i.add_argument("--run-id", default=None)
-    i.add_argument("--dry-run", action="store_true")
-    i.set_defaults(func=_cmd_ingest)
-
-    return p
-
-
-def _cmd_rollout(args: argparse.Namespace) -> int:
-    suites = tuple(s.strip() for s in args.suite.split(",") if s.strip())
-    task_ids = (
-        tuple(int(t) for t in args.task_ids.split(",")) if args.task_ids else None
+    run = commands.add_parser("evaluate", help="run or resume an evaluation")
+    run.add_argument("--policy", choices=("openvla", "vla_jepa"), required=True)
+    run.add_argument(
+        "--benchmark",
+        choices=("libero", "libero_para", "libero_pro"),
+        default="libero",
     )
-    from physical_ai_evals.cloud.sweep import (
-        evaluation_fingerprint,
-        immutable_model_id,
-        implementation_fingerprint,
-        resolve_openvla_config,
-        resolve_vla_jepa_config,
-        runtime_provenance,
-        write_evaluation_manifest,
+    run.add_argument("--suite", default="libero_spatial")
+    run.add_argument(
+        "--tasks",
+        default="",
+        help="comma-separated task IDs (LIBERO/Para) or task keys (Para/Pro)",
     )
+    run.add_argument(
+        "--perturbations",
+        default="",
+        help="comma-separated Para paraphrase types or Pro perturbations",
+    )
+    run.add_argument("--episodes", type=int, default=50)
+    run.add_argument("--seed", type=int, default=7)
+    run.add_argument("--model-id", default="")
+    run.add_argument("--revision", default="")
+    run.add_argument("--device", choices=("cuda", "cpu", "mps"), default="cuda")
+    run.add_argument("--out", type=Path, default=Path("data/evaluations"))
+    run.add_argument("--no-video", action="store_true")
+    run.add_argument("--dry-run", action="store_true")
+    run.set_defaults(function=_evaluate)
+
+    read = commands.add_parser("read", help="summarize an evaluation directory")
+    read.add_argument("path", type=Path)
+    read.add_argument(
+        "--group-by",
+        default="",
+        help="comma-separated episode columns, for example task_id or perturbation",
+    )
+    read.set_defaults(function=_read)
+    return parser
+
+
+def _benchmark(args: argparse.Namespace):
+    from physical_ai_evals import libero, libero_para, libero_pro
+
+    tasks = [item.strip() for item in args.tasks.split(",") if item.strip()] or None
+    perturbations = [
+        item.strip() for item in args.perturbations.split(",") if item.strip()
+    ] or None
+    if args.benchmark == "libero":
+        return libero(
+            args.suite,
+            task_ids=[int(task) for task in tasks] if tasks else None,
+            episodes=args.episodes,
+            seed=args.seed,
+        )
+    if args.benchmark == "libero_para":
+        task_ids = (
+            [int(task) for task in tasks]
+            if tasks and all(task.isdigit() for task in tasks)
+            else None
+        )
+        return libero_para(
+            task_ids=task_ids,
+            task_keys=tasks if tasks and task_ids is None else None,
+            paraphrase_types=perturbations,
+            episodes=args.episodes,
+            seed=args.seed,
+        )
+    return libero_pro(
+        args.suite,
+        task_keys=tasks,
+        perturbations=perturbations,
+        episodes=args.episodes,
+        seed=args.seed,
+    )
+
+
+def _policy(args: argparse.Namespace):
+    from physical_ai_evals import openvla, vla_jepa
 
     if args.policy == "openvla":
-        load_model_id, model_revision, unnorm_key = resolve_openvla_config(
-            suites,
-            model_id=args.model_id,
-            unnorm_key=args.unnorm_key,
-            model_revision=args.model_revision,
+        suite = "libero_goal" if args.benchmark == "libero_para" else args.suite
+        return openvla(
+            suite,
+            model_id=args.model_id or None,
+            revision=args.revision or None,
+            device=args.device,
         )
-    else:
-        load_model_id, model_revision = resolve_vla_jepa_config(
-            args.model_id, args.model_revision
-        )
-        unnorm_key = args.unnorm_key
+    kwargs = {"device": args.device}
+    if args.model_id:
+        kwargs["model_id"] = args.model_id
+    if args.revision:
+        kwargs["revision"] = args.revision
+    return vla_jepa(**kwargs)
 
-    recorded_model_id = immutable_model_id(load_model_id, model_revision)
-    evaluation_config = {
-        "policy_type": args.policy,
-        "model": recorded_model_id,
-        "suites": sorted(set(suites)),
-        "seed": args.seed,
-        "unnorm_key": unnorm_key if args.policy == "openvla" else None,
-        "center_crop_scale": 0.9 if args.policy == "openvla" else None,
-        "attn_impl": "sdpa" if args.policy == "openvla" else None,
-        "camera_height": 256,
-        "camera_width": 256,
-        "num_steps_wait": 10,
-        "max_steps": {suite: SUITE_MAX_STEPS.get(suite, 300) for suite in sorted(set(suites))},
-        "control_mode": "relative",
-        "write_frames": True,
-        "write_video": True,
-        "run_id_override": args.run_id,
-        "implementation": implementation_fingerprint(args.policy),
-        "runtime": runtime_provenance(
-            {
-                "daft": "daft",
-                "huggingface_hub": "huggingface-hub",
-                "lerobot": "lerobot",
-                "libero": "libero",
-                "modal": "modal",
-                "numpy": "numpy",
-                "torch": "torch",
-                "transformers": "transformers",
-            }
-        ),
-    }
-    evaluation_id = evaluation_fingerprint(evaluation_config)
-    out_dir = args.out / args.policy / evaluation_id
-    media_root = args.out.parent
-    cfg = RolloutConfig(
-        policy_type=args.policy,
-        suites=suites,
-        n_episodes_per_task=args.episodes,
-        task_ids=task_ids,
-        seed=args.seed,
-        control_mode=args.control_mode,
-        model_id=recorded_model_id,
-        unnorm_key=unnorm_key,
-        device=args.device,
-        out_dir=out_dir,
-        frames_dir=media_root / "frames" / args.policy / evaluation_id,
-        videos_dir=media_root / "videos" / args.policy / evaluation_id,
-        run_id=args.run_id or f"rollout-{args.policy}-{evaluation_id}",
-    )
+
+def _evaluate(args: argparse.Namespace) -> int:
+    benchmark = _benchmark(args)
+    policy = _policy(args)
     if args.dry_run:
-        print(f"[dry-run] rollout plan: {cfg}")
+        print(
+            {
+                "policy": f"{policy.policy_id}@{policy.revision}",
+                "benchmark": benchmark.name,
+                "benchmark_revision": benchmark.revision,
+                "suite": args.suite,
+                "episodes_per_task": args.episodes,
+                "seed": args.seed,
+                "out": str(args.out),
+            }
+        )
         return 0
 
-    write_evaluation_manifest(cfg.out_dir, evaluation_id, evaluation_config)
+    from physical_ai_evals import evaluate
 
-    from huggingface_hub import snapshot_download
-
-    from physical_ai_evals.bench.libero import run_sweep
-
-    model_path = snapshot_download(repo_id=load_model_id, revision=model_revision)
-
-    if args.policy == "openvla":
-        from physical_ai_evals.policy.openvla import OpenVLAPolicy
-        policy = OpenVLAPolicy(
-            model_id=model_path,
-            unnorm_key=cfg.unnorm_key, device=cfg.device, attn_impl="sdpa",
-        )
-    else:
-        from physical_ai_evals.policy.vla_jepa import VLAJEPAPolicy
-        policy = VLAJEPAPolicy(policy_path=model_path, device=cfg.device)
-
-    results = run_sweep(cfg, policy)
-    n_success = sum(r.success for r in results)
-    print(f"{n_success}/{len(results)} episodes succeeded -> {cfg.out_dir}")
+    evaluation = evaluate(
+        policy,
+        benchmark,
+        out=args.out,
+        write_video=not args.no_video,
+    )
+    metrics = evaluation.metrics().to_pydict()
+    print(
+        f"{metrics['successes'][0] or 0}/{metrics['episodes'][0]} succeeded "
+        f"({evaluation.success_rate():.3f}) -> {evaluation.path}"
+    )
     return 0
 
 
-def _cmd_ingest(args: argparse.Namespace) -> int:
-    cfg = IngestConfig(source=args.source, input_path=args.input,
-                       out_dir=args.out, limit_episodes=args.limit)
-    run_id = args.run_id or _auto_run_id(f"ingest-{args.source}")
-    if args.dry_run:
-        print(f"[dry-run] ingest plan: {cfg} run_id={run_id}")
-        return 0
+def _read(args: argparse.Namespace) -> int:
+    from physical_ai_evals import read_evaluation
 
-    from physical_ai_evals.core.writer import write_episode
-    from physical_ai_evals.ingest.hdf5 import Hdf5Ingestor
-
-    ingestor = Hdf5Ingestor(camera_role_map=cfg.camera_role_map)
-    n = 0
-    for episode in ingestor.load(cfg.input_path, limit=cfg.limit_episodes):
-        write_episode(episode, cfg.out_dir, run_id=run_id)
-        n += 1
-    print(f"ingested {n} episodes -> {cfg.out_dir}")
+    evaluation = read_evaluation(args.path)
+    groups = tuple(
+        item.strip() for item in args.group_by.split(",") if item.strip()
+    )
+    evaluation.metrics(*groups).show()
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
-    return args.func(args)
+    args = _parser().parse_args(argv)
+    return args.function(args)
 
 
 if __name__ == "__main__":

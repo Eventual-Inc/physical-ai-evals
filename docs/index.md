@@ -1,29 +1,21 @@
 # physical-ai-evals
 
-`physical-ai-evals` provides:
+`physical-ai-evals` is a Python 3.12 evaluation harness for:
 
-- revision-checked Daft readers for ALOHA, EgoDex, and ABC-130K;
-- revision-pinned task catalogs for LIBERO-Para and LIBERO-PRO;
-- selective robomimic/LIBERO HDF5 ingest through `daft.file.Hdf5File`;
-- a normalized `rollout-v2` Parquet schema with Daft tensor columns for episode and step records;
-- OpenVLA and VLA-JEPA policy adapters; and
-- local and Modal execution paths for LIBERO.
+- OpenVLA and VLA-JEPA;
+- LIBERO, LIBERO-Para, and LIBERO-Pro;
+- crash-safe episode/step/video traces; and
+- revision-checked LeRobot v3 reads through Daft.
 
-## Install
+The package is flat by design. `evaluate()` owns the stateful rollout boundary;
+Daft owns specifications, resume anti-joins, typed Parquet storage, lazy reads,
+and metrics. Modal supplies one orchestration surface with separate, pinned
+policy images.
 
-```bash
-make setup
-make check
-```
+Start with the
+[repository README](https://github.com/Eventual-Inc/physical-ai-evals#readme),
+then use:
 
-The supported runtime is Python 3.12. Policy dependencies are optional and installed
-separately because OpenVLA and VLA-JEPA require incompatible environments.
-
-## Start here
-
-- [Dataset catalogs](datasets.md)
-- [Evaluation protocol](evaluation.md)
-- [Troubleshooting](troubleshooting.md)
-
-The package API and command-line examples are in the
-[repository README](https://github.com/Eventual-Inc/physical-ai-evals#readme).
+- [Evaluation protocol](evaluation.md) for benchmark semantics and provenance;
+- [Dataset readers](datasets.md) for LeRobot queries; and
+- [Troubleshooting](troubleshooting.md) for policy/simulator environments.

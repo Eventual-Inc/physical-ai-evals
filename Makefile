@@ -1,7 +1,10 @@
 # Common workflows. `make help` lists targets; CI runs the same commands (.github/workflows/ci.yml).
 
 VENV    ?= .venv
-SUITES  ?= libero_spatial
+SUITE  ?= libero_spatial
+BENCHMARK ?= libero
+TASKS ?=
+PERTURBATIONS ?=
 EPISODES ?= 10
 RUFF_VERSION ?= 0.15.21
 TY_VERSION ?= 0.0.56
@@ -24,7 +27,7 @@ lock-check: ## Fail if pyproject.toml and uv.lock disagree
 	uv lock --check
 
 setup: ## Create the frozen dev venv (Python 3.12 + CPU Torch), mirroring CI
-	uv sync --frozen --extra ingest_hdf5 --extra modal
+	uv sync --frozen --extra modal
 	# CPU wheel keeps all policy-adapter tests active without resolving a CUDA stack.
 	@if [ "$$(uname -s)" = "Linux" ]; then \
 		uv pip install torch==2.2.0 --index-url https://download.pytorch.org/whl/cpu; \
@@ -69,13 +72,13 @@ clean: ## Remove build/test artifacts
 # in the physical_ai_evals package and its dependencies.
 
 smoke-openvla: ## CPU image smoke test for the OpenVLA Modal app
-	$(VENV)/bin/modal run physical_ai_evals/modal_app.py --smoke-test
+	$(VENV)/bin/modal run -m physical_ai_evals.modal --policy openvla --benchmark $(BENCHMARK) --suite $(SUITE) $(if $(strip $(PERTURBATIONS)),--perturbations "$(PERTURBATIONS)") --smoke-test
 
 smoke-vla-jepa: ## CPU image smoke test for the VLA-JEPA Modal app
-	$(VENV)/bin/modal run physical_ai_evals/modal_vla_jepa_app.py --smoke-test
+	$(VENV)/bin/modal run -m physical_ai_evals.modal --policy vla_jepa --benchmark $(BENCHMARK) --suite $(SUITE) $(if $(strip $(PERTURBATIONS)),--perturbations "$(PERTURBATIONS)") --smoke-test
 
-rollout-openvla: ## OpenVLA sweep on Modal (SUITES=..., EPISODES=...)
-	$(VENV)/bin/modal run physical_ai_evals/modal_app.py --policy-type openvla --suites $(SUITES) --episodes $(EPISODES)
+rollout-openvla: ## OpenVLA sweep on Modal (BENCHMARK=..., SUITE=..., EPISODES=...)
+	$(VENV)/bin/modal run -m physical_ai_evals.modal --policy openvla --benchmark $(BENCHMARK) --suite $(SUITE) $(if $(strip $(TASKS)),--tasks "$(TASKS)") $(if $(strip $(PERTURBATIONS)),--perturbations "$(PERTURBATIONS)") --episodes $(EPISODES)
 
-rollout-vla-jepa: ## VLA-JEPA sweep on Modal (SUITES=..., EPISODES=...)
-	$(VENV)/bin/modal run physical_ai_evals/modal_vla_jepa_app.py --suites $(SUITES) --episodes $(EPISODES)
+rollout-vla-jepa: ## VLA-JEPA sweep on Modal (BENCHMARK=..., SUITE=..., EPISODES=...)
+	$(VENV)/bin/modal run -m physical_ai_evals.modal --policy vla_jepa --benchmark $(BENCHMARK) --suite $(SUITE) $(if $(strip $(TASKS)),--tasks "$(TASKS)") $(if $(strip $(PERTURBATIONS)),--perturbations "$(PERTURBATIONS)") --episodes $(EPISODES)

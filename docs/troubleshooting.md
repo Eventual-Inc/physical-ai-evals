@@ -1,32 +1,33 @@
 # Troubleshooting
 
-These fixes apply to the pinned OpenVLA, VLA-JEPA, and LIBERO stacks used by this repository.
-
-## Environment
+## Images and installation
 
 | Symptom | Check |
 |---|---|
-| EGL context creation fails | Set `MUJOCO_GL=egl` before importing MuJoCo or robosuite. Use `cgl` on macOS. |
+| OpenVLA remote code breaks in model load | Use Transformers `4.40.1`; newer releases are not compatible with the pinned checkpoint code. |
+| Torch reports `_ARRAY_API not found` | OpenVLA's Torch 2.2 build requires NumPy 1.x. |
+| VLA-JEPA import fails | Use the pinned LeRobot commit in `physical_ai_evals/modal.py`; it requires Python 3.12 and a Transformers 5.x stack. |
+| OpenVLA and VLA-JEPA dependencies conflict | They cannot share an environment. Use the two Modal images or two isolated GPU environments. |
+| EGL context creation fails | On Linux set `MUJOCO_GL=egl` and `PYOPENGL_PLATFORM=egl`; use `cgl` on macOS. |
 | `evdev` cannot find `linux/input.h` | Install `linux-libc-dev`. |
-| Extension build cannot find a compiler | Install `build-essential` and `clang` in the image. |
-| First `import libero` raises `EOFError` | Create LIBERO's path configuration non-interactively during the image build. |
-| LIBERO imports but environment creation fails | Test construction of an environment; a `--no-deps` install may omit runtime-only imports. |
-| Torch reports `_ARRAY_API not found` | The Torch 2.2 stack requires NumPy 1.x; use `numpy==1.26.4`. |
+| Extension build cannot find a compiler | Install `build-essential`, `clang`, and `cmake`. |
+| LIBERO-Pro BDDL cannot resolve an object | Confirm the pinned Pro fork, rather than standard LIBERO, is the imported `libero` package. |
 
-## Evaluation
+## Rollouts
 
 | Symptom | Check |
 |---|---|
-| Episodes always hit the step cap | Verify the checkpoint-specific gripper transform and action unnormalization key. |
-| Success changes after preprocessing edits | Compare image rotation, resize, center crop, and input value range with the reference evaluator. |
-| `torch.from_numpy` rejects negative strides | Call `np.ascontiguousarray` after rotating an image with slicing. |
-| Later episodes fail or raise after many steps | Call `env.reset()` before every `set_init_state`; the robosuite step counter otherwise carries across episodes. |
-| Episode length appears doubled | Group by both `policy_type` and `episode_id`. |
-| MuJoCo or SciPy fails after rebuilding | Compare resolved transitive versions with the pinned image; the tested stack uses `mujoco==3.9.0` and `scipy==1.15.3`. |
+| OpenVLA gripper never opens | Verify the checkpoint-specific RLDS-to-LIBERO gripper conversion and suite `unnorm_key`. |
+| Success changes after preprocessing edits | Compare camera rotation, OpenVLA center crop, resize, and input range. |
+| `torch.from_numpy` rejects negative strides | Preserve the adapter's contiguous copy after camera rotation. |
+| Later episodes hit the horizon unexpectedly | `env.reset()` must precede every `set_init_state()`. |
+| A resume skips damaged data | It should not: remove no files manually; the completion validator rejects corrupt/gapped partitions and overwrites them. |
+| A custom policy works locally but not on Modal | Include its defining module in the image and call `evaluate()` from a custom Modal function. |
 
-Run the Modal image smoke tests before a sweep:
+Run a real CPU simulator smoke before spending GPU time:
 
 ```bash
-make smoke-openvla
-make smoke-vla-jepa
+make smoke-openvla BENCHMARK=libero SUITE=libero_spatial
+make smoke-vla-jepa BENCHMARK=libero_para SUITE=libero_goal
+make smoke-openvla BENCHMARK=libero_pro SUITE=libero_spatial PERTURBATIONS=lan
 ```

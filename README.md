@@ -3,151 +3,201 @@
 [![CI](https://github.com/Eventual-Inc/physical-ai-evals/actions/workflows/ci.yml/badge.svg)](https://github.com/Eventual-Inc/physical-ai-evals/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 
-Python tools for querying robot datasets, normalizing demonstrations, and evaluating VLA
-policies on LIBERO. Rollouts use a shared one-row-per-step Parquet schema so they can be
-queried with [Daft](https://github.com/Eventual-Inc/Daft).
+Run OpenVLA and VLA-JEPA on LIBERO, LIBERO-Para, and LIBERO-Pro from one Python
+3.12 API. The stateful model/simulator loop stays in one process; Daft handles
+episode specification, resume planning, typed Parquet writes, lazy reads, and
+metrics.
 
-The current `rollout-v2` schema stores actions, proprioceptive state, and end-effector
-positions as fixed-shape Daft tensors, and reserves a typed 1,024-dimensional embedding
-column. Read complete rollout parts with `daft.read_parquet()` so those logical types and
-nullable tensor values are reconstructed as NumPy arrays.
+```python
+import physical_ai_evals as pae
+
+evaluation = pae.evaluate(
+    policy=pae.openvla("libero_spatial"),
+    benchmark=pae.libero(
+        "libero_spatial",
+        task_ids=[0, 1],
+        episodes=5,
+        seed=7,
+    ),
+    out="data/evaluations",
+)
+
+print(evaluation.success_rate())
+evaluation.metrics("task_id").show()
+evaluation.steps.where(evaluation.steps["next.done"]).show()
+```
+
+## Why this shape
+
+An evaluation has three useful objects:
+
+- a `Benchmark`, whose episode specifications are a lazy Daft DataFrame;
+- a structural `Policy`, loaded once for every `evaluate()` call; and
+- an `Evaluation` with lazy `episodes` and `steps` DataFrames.
+
+The imperative boundary is deliberately small: an action depends on the previous
+simulator observation, so the rollout loop is stateful. It does not perform nested
+Daft writes. After every episode, Daft writes the step partition first and the
+episode completion row last. Resume anti-joins only against outcomes whose steps
+are contiguous and complete.
 
 ## Install
 
-Python 3.12 is the tested runtime.
+The tested runtime is Python 3.12.
 
 ```bash
 make setup
 make check
 ```
 
-For HDF5 ingest without the development dependencies:
+The two policy environments cannot be combined:
 
-```bash
-pip install -e ".[ingest_hdf5]"
-```
+- OpenVLA is pinned to Torch 2.2, NumPy 1.x, and Transformers 4.40.1.
+- VLA-JEPA is pinned to a LeRobot commit whose stack uses Torch 2.7+,
+  NumPy 2.x, and Transformers 5.x.
 
-## Query datasets
+Modal is the maintained installation path for both. For a Linux GPU machine,
+install the package and simulator extra in each isolated policy environment.
+Install VLA-JEPA's pinned LeRobot dependency as documented in
+[`pyproject.toml`](pyproject.toml).
 
-ALOHA, EgoDex, and ABC-130K use Daft's LeRobot v3 reader. Episode queries do not decode
-video; `raw()` returns the lazy frame table and decodes cameras only when requested.
-
-```python
-from physical_ai_evals.datasets import abc, aloha, egodex
-
-aloha.episodes().select("episode_index", "tasks", "length").show()
-
-egodex.catalog(split="test").limit(10).show()
-egodex.episodes("add_remove_lid", split="test").limit(5).show()
-
-abc.episodes(
-    repo_id=abc.SMOKE_REPO_ID,
-    revision=abc.SMOKE_REVISION,
-).limit(5).show()
-```
-
-The default sources are recorded at exact Hugging Face commits. Readers reject a changed
-repository head instead of silently querying different data.
-
-LIBERO-Para and LIBERO-PRO expose manifest-only task catalogs with revision-pinned BDDL paths:
+## All three benchmarks
 
 ```python
-import daft
-from physical_ai_evals.bench.libero import libero_para, libero_pro
+# Standard LIBERO.
+standard = pae.libero("libero_goal", episodes=50, seed=7)
 
-para = libero_para.raw()
-para = para.where(daft.col("environment_task_id") == 3).limit(5)
-libero_para.instructions(para).show()
+# Language perturbations; environments and fixed initial states come from
+# the corresponding standard LIBERO-Goal task.
+para = pae.libero_para(
+    task_ids=[0, 1],
+    paraphrase_types=["act", "obj"],
+    episodes=50,
+    seed=7,
+)
 
-pro = libero_pro.raw()
-pro = pro.where(
-    (daft.col("suite") == "libero_spatial")
-    & (daft.col("perturbation") == "lan")
-).limit(5)
-libero_pro.instructions(pro).show()
-```
-
-Daft also provides `daft.datasets.droid.raw()` directly. See
-[Dataset catalogs](docs/datasets.md) for query behavior and source revisions.
-
-## Published rollout trace
-
-The historical LIBERO-Spatial trace is hosted on
-[Hugging Face](https://huggingface.co/datasets/Eventual-Inc/physical-ai-evals-libero-spatial-pilot)
-rather than committed to this repository. Query the immutable published revision directly:
-
-```python
-import daft
-
-steps = daft.read_parquet(
-    "hf://datasets/Eventual-Inc/physical-ai-evals-libero-spatial-pilot"
-    "@ddb8a88fcc579ebf077a9ca2d1e026a7e1cf4429/steps.parquet"
+# Published Pro BDDL and initial states, executed by the pinned Pro simulator.
+pro = pae.libero_pro(
+    "libero_spatial",
+    perturbations=["lan"],
+    episodes=50,
+    seed=7,
 )
 ```
 
-The dataset card records the trace's protocol and provenance limitations.
+OpenVLA has one checkpoint per base suite. Use the goal checkpoint for
+LIBERO-Para; `physical_ai_evals.modal` resolves that mapping automatically.
+VLA-JEPA uses its pinned LIBERO checkpoint for all suites.
 
-## Ingest HDF5 demonstrations
+## Bring your own policy
 
-The HDF5 adapter uses `daft.file.Hdf5File` and reads only the selected episodes and required
-state/action arrays.
-
-```bash
-physical-ai-evals ingest \
-  --source hdf5 \
-  --input demos/libero_goal.hdf5 \
-  --out data/rollouts
-```
+No inheritance or source edit is required:
 
 ```python
-from physical_ai_evals.ingest import Hdf5Ingestor
+from functools import partial
+import numpy as np
+import physical_ai_evals as pae
 
-episodes = Hdf5Ingestor().load("demos/libero_goal.hdf5", limit=10)
+class MyPolicy:
+    action_dim = 7
+    control_mode = "relative"
+
+    def __init__(self, checkpoint):
+        self.checkpoint = checkpoint
+
+    def reset(self, instruction):
+        self.instruction = instruction
+
+    def act(self, observation):
+        return np.zeros(7, dtype=np.float32)
+
+    def close(self):
+        pass
+
+policy = pae.PolicySpec(
+    factory=partial(MyPolicy, "checkpoints/my-policy"),
+    policy_id="my-team/my-policy",
+    revision="git-commit-or-checkpoint-digest",
+)
+evaluation = pae.evaluate(
+    policy,
+    pae.libero("libero_spatial", task_ids=[0], episodes=2),
+    out="data/evaluations",
+)
 ```
 
-## Evaluate policies
+This works directly in a local or own-GPU Python process. A custom class used on
+Modal must also be included in the container image; the bundled Modal entrypoint
+only constructs the two built-in policies.
 
-Resolve an evaluation plan without loading a model or simulator:
-
-```bash
-physical-ai-evals rollout \
-  --policy vla_jepa \
-  --suite libero_spatial \
-  --task-ids 0 \
-  --episodes 2 \
-  --seed 7 \
-  --dry-run
-```
-
-OpenVLA and VLA-JEPA use separate optional environments because their dependency constraints
-conflict. The repository includes Modal entry points for both:
-
-```bash
-make smoke-openvla
-make smoke-vla-jepa
-```
-
-Protocol differences that affect comparisons are listed in
-[Evaluation protocol](docs/evaluation.md).
-
-## Layout
+## Output and queries
 
 ```text
-physical_ai_evals/  package source
-tests/              unit and integration tests
-docs/               dataset, evaluation, and troubleshooting reference
-examples/notebooks/ small analysis examples
+<out>/<evaluation_id>/
+  manifest.json
+  episodes/episode_key=.../*.parquet
+  steps/episode_key=.../*.parquet
+  videos/<episode_key>/primary.mp4
+  videos/<episode_key>/wrist.mp4
 ```
 
-The main extension points are:
+The normalized layout follows LeRobot's episode/step/video concepts without
+claiming to be a complete LeRobot training dataset. Constant evaluation
+provenance lives in the manifest; episode metadata and outcomes are not repeated
+on every transition. Video paths are relative to the evaluation directory.
 
-- [`Policy`](physical_ai_evals/policy/base.py) for model adapters.
-- [`bench/libero.py`](physical_ai_evals/bench/libero.py) for the environment loop.
-- [`Episode` and `Step`](physical_ai_evals/core/episode.py) for normalized records.
-- [`Ingestor`](physical_ai_evals/ingest/base.py) for external datasets.
+```python
+run = pae.read_evaluation("data/evaluations/<evaluation_id>")
+failures = run.episodes.where(run.episodes["success"] == False)
+failure_steps = failures.join(run.steps, on="episode_key")
+failure_steps.select("task_key", "frame_index", "action").show()
+```
 
-## License and citation
+The historical published pilot trace remains `rollout-v1`. It is intentionally
+version-noted rather than presented as an `eval-v1` reproduction fixture; see
+[Evaluation protocol](docs/evaluation.md).
 
-The repository code is Apache-2.0. Upstream datasets, models, simulators, and software retain
-their own terms; see [Third-party notices](THIRD_PARTY_NOTICES.md). Citation metadata is in
-[`CITATION.cff`](CITATION.cff).
+## Modal
+
+One app exposes both policies while retaining two images:
+
+```bash
+# One-time setup:
+modal token new
+modal secret create hf-token HF_TOKEN=...
+
+# Real CPU simulator smoke (constructs, resets, and steps an environment):
+make smoke-openvla BENCHMARK=libero SUITE=libero_spatial
+make smoke-vla-jepa BENCHMARK=libero_para SUITE=libero_goal
+make smoke-openvla BENCHMARK=libero_pro SUITE=libero_spatial PERTURBATIONS=lan
+
+# GPU evaluations:
+make rollout-openvla BENCHMARK=libero_pro SUITE=libero_spatial \
+  PERTURBATIONS=lan TASKS=libero_spatial_lan:pick_up_the_bowl \
+  EPISODES=5
+make rollout-vla-jepa BENCHMARK=libero_para SUITE=libero_goal \
+  PERTURBATIONS=act EPISODES=5
+```
+
+Modal commits its output volume after each completed episode, so a container
+failure preserves all prior completions. Re-running the exact configuration
+resumes it.
+
+## Read LeRobot datasets with Daft
+
+The flat `datasets` module is a thin, revision-checked layer over
+`daft.datasets.lerobot`:
+
+```python
+from physical_ai_evals.datasets import ALOHA, lerobot_episodes
+
+lerobot_episodes(ALOHA).select("episode_index", "tasks", "length").show()
+```
+
+See [Dataset readers](docs/datasets.md), [Evaluation protocol](docs/evaluation.md),
+and [Troubleshooting](docs/troubleshooting.md).
+
+## License
+
+Repository code is Apache-2.0. Upstream datasets, models, simulators, and
+software retain their own terms; see [Third-party notices](THIRD_PARTY_NOTICES.md).

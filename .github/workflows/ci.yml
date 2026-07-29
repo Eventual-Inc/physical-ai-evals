@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.12"   # the repo's canonical interpreter (core supports 3.10-3.13)
+          python-version: "3.12"
       - name: Install frozen development environment
         run: make setup
       - name: Type check
@@ -63,5 +63,5 @@ jobs:
         run: |
           uv venv /tmp/package-smoke --python 3.12
           uv pip install --python /tmp/package-smoke/bin/python dist/*.whl
-          /tmp/package-smoke/bin/python -c "import physical_ai_evals, physical_ai_evals.core.schema; print(physical_ai_evals.__version__)"
+          /tmp/package-smoke/bin/python -c "import physical_ai_evals, physical_ai_evals.schema; print(physical_ai_evals.__version__)"
           /tmp/package-smoke/bin/physical-ai-evals --help > /dev/null
