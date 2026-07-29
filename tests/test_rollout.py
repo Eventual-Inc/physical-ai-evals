@@ -7,8 +7,8 @@ parquet. Frame/video capture (PNG/mp4) needs pillow/ffmpeg and is left off here 
 
 from __future__ import annotations
 
+import daft
 import numpy as np
-import pyarrow.parquet as pq
 import pytest
 
 from physical_ai_evals.bench.libero import run_episode, run_sweep
@@ -102,25 +102,25 @@ def test_run_episode_closed_loop(tmp_path):
     assert res.num_steps == 3            # stopped on done, not max_steps
     assert res.terminal_failure is None
 
-    table = pq.read_table(res.parquet_path)
+    data = daft.read_parquet(res.parquet_path).to_pydict()
     assert_emits_schema(res.parquet_path)
-    assert table.num_rows == 3
-    assert table.column("episode_id")[0].as_py() == "libero_goal/0/7/0"
-    assert table.column("source")[0].as_py() == "libero"
-    assert table.column("policy_type")[0].as_py() == "openvla"
-    assert table.column("control_mode")[0].as_py() == "relative"
-    assert table.column("bddl_file")[0].as_py() == "/x/put_bowl.bddl"
-    assert table.column("success").to_pylist() == [True, True, True]
+    assert len(data["episode_id"]) == 3
+    assert data["episode_id"][0] == "libero_goal/0/7/0"
+    assert data["source"][0] == "libero"
+    assert data["policy_type"][0] == "openvla"
+    assert data["control_mode"][0] == "relative"
+    assert data["bddl_file"][0] == "/x/put_bowl.bddl"
+    assert data["success"] == [True, True, True]
     # per-step signal the wedge needs is populated:
-    assert table.column("step_idx").to_pylist() == [0, 1, 2]
-    np.testing.assert_allclose(table.column("action")[0].as_py(), [0.2] * 7, rtol=1e-6)
-    assert abs(table.column("gripper_action")[0].as_py() - 0.2) < 1e-6
-    assert abs(table.column("gripper_state")[0].as_py() - 0.08) < 1e-5  # qpos[0]-qpos[1]
-    assert len(table.column("state")[0].as_py()) == 8                   # eef(3)+axisangle(3)+gripper(2)
-    assert len(table.column("eef_pos")[0].as_py()) == 3
+    assert data["step_idx"] == [0, 1, 2]
+    np.testing.assert_allclose(data["action"][0], [0.2] * 7, rtol=1e-6)
+    assert abs(data["gripper_action"][0] - 0.2) < 1e-6
+    assert abs(data["gripper_state"][0] - 0.08) < 1e-5  # qpos[0]-qpos[1]
+    assert data["state"][0].shape == (8,)  # eef(3)+axisangle(3)+gripper(2)
+    assert data["eef_pos"][0].shape == (3,)
     # media off -> null
-    assert table.column("frame_path")[0].as_py() is None
-    assert table.column("video_path")[0].as_py() is None
+    assert data["frame_path"][0] is None
+    assert data["video_path"][0] is None
 
 
 def test_run_episode_failure_labels_unlabeled(tmp_path):
@@ -132,9 +132,9 @@ def test_run_episode_failure_labels_unlabeled(tmp_path):
     assert res.success is False
     assert res.num_steps == 5                       # ran to max_steps without done
     assert res.terminal_failure == "unlabeled"
-    table = pq.read_table(res.parquet_path)
-    assert table.column("success").to_pylist() == [False] * 5
-    assert table.column("terminal_failure")[0].as_py() == "unlabeled"
+    data = daft.read_parquet(res.parquet_path).to_pydict()
+    assert data["success"] == [False] * 5
+    assert data["terminal_failure"][0] == "unlabeled"
 
 
 def test_run_sweep_iteration_and_episode_ids(tmp_path):
@@ -152,10 +152,9 @@ def test_run_sweep_iteration_and_episode_ids(tmp_path):
     assert env.reset_calls == 2                      # one env.reset() per episode (horizon bug)
 
     # both parts land in the rollouts dir and form one canonical glob
-    import pyarrow.dataset as pads
-    table = pads.dataset(cfg.out_dir, format="parquet").to_table()
-    assert set(table.column("episode_id").to_pylist()) == {"libero_goal/0/0/0", "libero_goal/0/1/0"}
-    assert set(table.column("policy_type").to_pylist()) == {"openvla"}
+    data = daft.read_parquet(str(cfg.out_dir / "*.parquet")).to_pydict()
+    assert set(data["episode_id"]) == {"libero_goal/0/0/0", "libero_goal/0/1/0"}
+    assert set(data["policy_type"]) == {"openvla"}
 
 
 def test_frame_capture_writes_png(tmp_path):
@@ -166,8 +165,8 @@ def test_frame_capture_writes_png(tmp_path):
         _FakeEnv(n_steps=2), _FakePolicy(), init_state=np.zeros(4), instruction="x",
         max_steps=10, episode_id="libero_goal/0/0/0", writer=writer, num_steps_wait=0,
     )
-    table = pq.read_table(res.parquet_path)
-    fp = table.column("frame_path")[0].as_py()
+    data = daft.read_parquet(res.parquet_path).to_pydict()
+    fp = data["frame_path"][0]
     assert fp is not None and fp.endswith("_primary.png")
     from pathlib import Path
     assert Path(fp).exists()

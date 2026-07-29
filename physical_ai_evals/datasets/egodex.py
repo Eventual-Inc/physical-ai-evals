@@ -7,7 +7,7 @@ from typing import Any
 
 import daft
 
-from physical_ai_evals.datasets._hub import list_repo_files
+from physical_ai_evals.core.hub import list_repo_files
 from physical_ai_evals.datasets._lerobot import verified_lerobot_uri
 
 DEFAULT_REPO_ID = "griffinlabs/EgoDex-LeRobot-v3.0"

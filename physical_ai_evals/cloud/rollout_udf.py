@@ -181,10 +181,8 @@ class LiberoRollout:
 
 
 def build_rollout_dataframe(
+    specs: daft.DataFrame,
     suites: list[str],
-    task_ids: list[int],
-    init_state_ids: list[int],
-    seeds: list[int],
     *,
     policy_type: str,
     out_dir: str,
@@ -192,7 +190,11 @@ def build_rollout_dataframe(
     model_revision: str = "",
     **runner_kwargs,
 ) -> daft.DataFrame:
-    """Build a Daft frame of episode summaries from rollout specs."""
+    """Build a Daft frame of episode summaries from a frame of rollout specs.
+
+    ``specs`` carries the ``suite``/``task_id``/``init_state_id``/``seed`` columns
+    produced by :func:`physical_ai_evals.cloud.sweep.enumerate_specs`.
+    """
     if policy_type == "openvla":
         from physical_ai_evals.cloud.sweep import resolve_openvla_config
 
@@ -216,10 +218,7 @@ def build_rollout_dataframe(
         model_revision=model_revision,
         **runner_kwargs,
     )
-    return (
-        daft.from_pydict(
-            {"suite": suites, "task_id": task_ids, "init_state_id": init_state_ids, "seed": seeds}
-        )
-        .with_column("result", runner.rollout(col("suite"), col("task_id"), col("init_state_id"), col("seed")))
-        .select(unnest(col("result")))
-    )
+    return specs.with_column(
+        "result",
+        runner.rollout(col("suite"), col("task_id"), col("init_state_id"), col("seed")),
+    ).select(unnest(col("result")))

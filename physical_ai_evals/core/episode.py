@@ -80,11 +80,11 @@ class Episode(BaseModel):
                 terminal_failure=self.terminal_failure,
                 num_steps=self.num_steps,
                 step_idx=step.timestep,
-                action=None if step.action is None else _as_f32_list(step.action),
+                action=None if step.action is None else _as_f32_tensor(step.action),
                 reward=None if step.reward is None else float(step.reward),
                 done=bool(step.done),
-                state=None if step.state is None else _as_f32_list(step.state),
-                eef_pos=None if step.eef_pos is None else _as_f32_list(step.eef_pos),
+                state=None if step.state is None else _as_f32_tensor(step.state),
+                eef_pos=None if step.eef_pos is None else _as_f32_tensor(step.eef_pos),
                 gripper_state=step.gripper_state,
                 gripper_action=(
                     None if step.action is None else float(np.asarray(step.action).ravel()[-1])
@@ -101,5 +101,5 @@ class Episode(BaseModel):
         return rows
 
 
-def _as_f32_list(arr) -> list[float]:
-    return np.asarray(arr, dtype=np.float32).ravel().tolist()
+def _as_f32_tensor(arr) -> np.ndarray:
+    return np.asarray(arr, dtype=np.float32)

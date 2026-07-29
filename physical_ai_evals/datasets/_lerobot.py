@@ -2,15 +2,7 @@
 
 from __future__ import annotations
 
-
-def current_repo_revision(repo_id: str) -> str:
-    """Return the current commit for a public Hugging Face dataset."""
-    from huggingface_hub import HfApi
-
-    revision = HfApi().dataset_info(repo_id=repo_id).sha
-    if revision is None:
-        raise RuntimeError(f"Hugging Face did not return a revision for {repo_id}")
-    return revision
+from physical_ai_evals.core.hub import current_repo_revision
 
 
 def verified_lerobot_uri(
@@ -21,9 +13,9 @@ def verified_lerobot_uri(
 ) -> str:
     """Return a Daft-compatible LeRobot URI after checking the Hub revision.
 
-    Daft's LeRobot reader uses recursive globs. Hugging Face supports immutable
-    revisions for direct ``hf://`` files, but not for those globs, so verify the
-    repository head before constructing the read plan.
+    Daft's LeRobot reader uses recursive globs, whose listed Hugging Face paths
+    drop ``@revision`` in Daft 0.7.21. Verify the repository head before
+    constructing the unpinned read plan.
     """
     current = current_repo_revision(repo_id)
     if current != revision:

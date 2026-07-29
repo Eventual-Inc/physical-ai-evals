@@ -5,7 +5,7 @@
 - revision-checked Daft readers for ALOHA, EgoDex, and ABC-130K;
 - revision-pinned task catalogs for LIBERO-Para and LIBERO-PRO;
 - selective robomimic/LIBERO HDF5 ingest through `daft.file.Hdf5File`;
-- a normalized Parquet schema for episode and step records;
+- a normalized `rollout-v2` Parquet schema with Daft tensor columns for episode and step records;
 - OpenVLA and VLA-JEPA policy adapters; and
 - local and Modal execution paths for LIBERO.
 

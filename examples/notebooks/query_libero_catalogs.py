@@ -7,7 +7,7 @@
 # %%
 import daft
 
-from physical_ai_evals.datasets import libero_para, libero_pro
+from physical_ai_evals.bench.libero import libero_para, libero_pro
 
 # %% [markdown]
 # ## LIBERO-Para variants

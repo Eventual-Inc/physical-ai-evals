@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import json
 
+import daft
 import numpy as np
-import pyarrow.compute as pc
-import pyarrow.dataset as pads
 import pytest
 
 h5py = pytest.importorskip("h5py")
@@ -162,7 +161,7 @@ def test_robomimic_native_keys(tmp_path):
     ep = next(iter(Hdf5Ingestor().load(str(tmp_path / "n.hdf5"))))
     rows = ep.to_step_rows(run_id="test")
     assert len(rows[0]["state"]) == 8               # ee_ori already axis-angle, no quat conv
-    assert rows[0]["state"][3:6] == [0.0, 0.0, 0.0]
+    np.testing.assert_array_equal(rows[0]["state"][3:6], [0.0, 0.0, 0.0])
     assert_emits_schema(write_rows(rows, tmp_path / "n.parquet"))
 
 
@@ -176,7 +175,11 @@ def test_robomimic_missing_obs(tmp_path):
     assert rows[0]["eef_pos"] is None
     assert rows[0]["gripper_state"] is None
     assert rows[0]["action"] is not None
-    assert_emits_schema(write_rows(rows, tmp_path / "raw.parquet"))
+    out = write_rows(rows, tmp_path / "raw.parquet")
+    assert_emits_schema(out)
+    data = daft.read_parquet(str(out)).select("state", "eef_pos").to_pydict()
+    assert data["state"] == [None] * 4
+    assert data["eef_pos"] == [None] * 4
 
 
 # --------------------------------------------------------- cross-file canonical glob
@@ -193,7 +196,11 @@ def test_failure_filter_across_files(tmp_path):
     write_episode(fail_ep, out_dir, run_id="t")
     write_episode(pass_ep, out_dir, run_id="t")
 
-    table = pads.dataset(out_dir, format="parquet").to_table()   # one glob, unified schema
-    failures = table.filter(pc.equal(table.column("success"), False))
-    assert failures.num_rows == 3
-    assert set(failures.column("episode_id").to_pylist()) == {fail_ep.episode_id}
+    failures = (
+        daft.read_parquet(str(out_dir / "*.parquet"))
+        .where(daft.col("success") == False)
+        .select("episode_id")
+        .to_pydict()
+    )
+    assert len(failures["episode_id"]) == 3
+    assert set(failures["episode_id"]) == {fail_ep.episode_id}

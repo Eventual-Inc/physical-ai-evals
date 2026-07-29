@@ -1,16 +1,12 @@
-"""Smoke test: the rollout schema round-trips through parquet.
-
-Small and dependency-light (pyarrow + numpy, both core deps). Exercises the load-bearing
-contract — that ``Episode.to_step_rows`` -> ``writer.write_rows`` produces a parquet file
-whose schema matches ``ROLLOUT_SCHEMA`` exactly and reads back losslessly. This is the
-gate that keeps ingest, the rollout writer, and the notebook reader in agreement.
-"""
+"""Smoke test: the Daft rollout schema round-trips through Parquet."""
 
 from __future__ import annotations
 
+import daft
 import numpy as np
-import pyarrow.compute as pc
+import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 from physical_ai_evals.core.episode import Episode, Step
 from physical_ai_evals.core.schema import (
@@ -67,9 +63,17 @@ def test_to_step_rows_matches_schema_columns():
     for row in rows:
         assert set(row) == set(COLUMNS)
         assert row["schema_version"] == SCHEMA_VERSION
-    # validate_rows enforces the arrow types; would raise on a mismatch.
-    table = validate_rows(rows)
-    assert table.schema.equals(ROLLOUT_SCHEMA, check_metadata=False)
+    assert isinstance(rows[0]["action"], np.ndarray)
+    frame = validate_rows(rows)
+    assert frame.schema() == ROLLOUT_SCHEMA
+
+
+def test_tensor_shape_is_enforced():
+    rows = _toy_episode().to_step_rows(run_id="test")
+    rows[0]["action"] = np.zeros(ACTION_DIM - 1, dtype=np.float32)
+
+    with pytest.raises(Exception, match="shapes different"):
+        validate_rows(rows)
 
 
 def test_roundtrip_through_parquet(tmp_path):
@@ -79,22 +83,44 @@ def test_roundtrip_through_parquet(tmp_path):
     assert out.exists()
     assert_emits_schema(out)  # written schema == ROLLOUT_SCHEMA
 
-    table = pq.read_table(out)
-    assert table.num_rows == 3
-    assert table.column("episode_id")[0].as_py() == "libero_goal/0/7/0"
-    assert table.column("terminal_failure")[0].as_py() == "re_grasp"
-    assert table.column("success")[0].as_py() is False
-    # per-step granularity preserved: gripper_action is action[-1].
-    # float32 round-trip is lossy (0.1 -> 0.10000000149...), so compare approximately.
-    np.testing.assert_allclose(table.column("action")[1].as_py(), [0.1] * ACTION_DIM, rtol=1e-6)
-    np.testing.assert_allclose(table.column("gripper_action")[1].as_py(), 0.1, rtol=1e-6)
-    assert table.column("step_idx").to_pylist() == [0, 1, 2]
+    frame = daft.read_parquet(str(out))
+    assert frame.schema() == ROLLOUT_SCHEMA
+    data = frame.to_pydict()
+    assert len(data["episode_id"]) == 3
+    assert data["episode_id"][0] == "libero_goal/0/7/0"
+    assert data["terminal_failure"][0] == "re_grasp"
+    assert data["success"][0] is False
+    assert isinstance(data["action"][1], np.ndarray)
+    assert data["action"][1].shape == (ACTION_DIM,)
+    np.testing.assert_allclose(data["action"][1], [0.1] * ACTION_DIM, rtol=1e-6)
+    np.testing.assert_allclose(data["gripper_action"][1], 0.1, rtol=1e-6)
+    assert data["embedding"] == [None, None, None]
+    assert data["step_idx"] == [0, 1, 2]
+
+    arrow_schema = pq.ParquetFile(out).schema_arrow
+    action_field = arrow_schema.field("action")
+    assert pa.types.is_fixed_size_list(action_field.type)
+    assert action_field.type.list_size == ACTION_DIM
+    assert action_field.metadata[b"ARROW:extension:name"] == b"daft.super_extension"
+    embedding_field = arrow_schema.field("embedding")
+    assert pa.types.is_fixed_size_list(embedding_field.type)
+    assert embedding_field.type.list_size == 1024
+    assert embedding_field.metadata[b"ARROW:extension:name"] == b"daft.super_extension"
+
+    # Scalar projections remain readable from PyArrow even when nullable tensor columns
+    # require Daft for a full logical-type reconstruction.
+    projected = pq.read_table(out, columns=["episode_id", "success"])
+    assert projected.column("episode_id")[0].as_py() == "libero_goal/0/7/0"
 
 
 def test_failure_filter_query(tmp_path):
-    # The wedge query: select failures, group by terminal_failure. Done here in arrow.
+    # The wedge query: select failures and inspect their terminal labels.
     out = write_rows(_toy_episode().to_step_rows(run_id="test"), tmp_path / "ep.parquet")
-    table = pq.read_table(out)
-    failures = table.filter(pc.invert(table.column("success")))
-    assert failures.num_rows == 3
-    assert set(failures.column("terminal_failure").to_pylist()) == {"re_grasp"}
+    failures = (
+        daft.read_parquet(str(out))
+        .where(daft.col("success") == False)
+        .select("terminal_failure")
+        .to_pydict()
+    )
+    assert len(failures["terminal_failure"]) == 3
+    assert set(failures["terminal_failure"]) == {"re_grasp"}

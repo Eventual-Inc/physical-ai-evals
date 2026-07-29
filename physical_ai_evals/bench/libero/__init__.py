@@ -1,11 +1,10 @@
-"""Benchmarks we run: LIBERO and its LIBERO-Para / LIBERO-PRO variants."""
+"""The LIBERO benchmark family: how we run libero, libero-para, and libero-pro."""
 
-from physical_ai_evals.bench.libero import (
+from physical_ai_evals.bench.libero import libero_para, libero_pro
+from physical_ai_evals.bench.libero._runner import (
     RolloutResult,
     libero_init_states,
     libero_num_tasks,
-    libero_para,
-    libero_pro,
     make_env,
     run_episode,
     run_sweep,

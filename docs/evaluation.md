@@ -35,9 +35,29 @@ Sources:
 
 Treat these as model-specific reference implementations, not one interchangeable protocol.
 
+## Stored tensor representation
+
+`rollout-v2` uses Daft logical types for numeric vectors:
+
+| Field | Daft type |
+|---|---|
+| `action` | `Tensor[Float32; [7]]` |
+| `state` | `Tensor[Float32; [8]]` |
+| `eef_pos` | `Tensor[Float32; [3]]` |
+| `embedding` | `Embedding[Float32; 1024]` |
+
+In the physical Parquet schema, fixed-shape tensors and embeddings are flattened into
+`LIST<float>` columns. Daft stores the fixed length, logical type, and original tensor shape
+in Arrow field metadata and restores each value as a NumPy array when reading.
+
+Use `daft.read_parquet()` for complete rollout reads. Scalar projections remain readable
+with PyArrow, but PyArrow 24 cannot reconstruct a nullable fixed-size tensor column when a
+row is null. Readers that ignore Daft's extension metadata see flattened fixed-size lists
+rather than shaped tensors.
+
 ## Stored row timing
 
-The current `rollout-v1` schema stores a transition per row:
+The current `rollout-v2` schema stores a transition per row:
 
 | Fields | Timing |
 |---|---|

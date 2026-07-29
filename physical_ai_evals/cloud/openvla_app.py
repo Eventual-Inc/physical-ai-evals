@@ -74,7 +74,7 @@ def _with_libero(image: modal.Image) -> modal.Image:
 
 def _with_pipeline(image: modal.Image) -> modal.Image:
     return (
-        image.pip_install("daft>=0.7.21", "huggingface_hub", "hf_xet", "numpy==1.26.4")
+        image.pip_install("daft[huggingface, numpy]>=0.7.21", "huggingface_hub", "hf_xet", "numpy==1.26.4")
         .env(hf_cache_env())
         .add_local_dir(".", remote_path=APP_DIR, copy=True, ignore=MODAL_LOCAL_DIR_IGNORE)
         .add_local_python_source("physical_ai_evals")
@@ -155,6 +155,8 @@ def _download(model_id: str, model_revision: str = "") -> dict:
 
 def _run_sweep(policy_type: str, suites: list[str], task_ids: list[int] | None, episodes: int,
                model_id: str, model_revision: str, seed: int, write_video: bool) -> dict:
+    import daft
+
     from physical_ai_evals.cloud.rollout_udf import build_rollout_dataframe
     from physical_ai_evals.cloud.sweep import (
         enumerate_specs,
@@ -215,7 +217,8 @@ def _run_sweep(policy_type: str, suites: list[str], task_ids: list[int] | None, 
     evaluation_id = evaluation_fingerprint(evaluation_config)
     out_dir = f"{OUTPUT_DIR}/rollouts/{policy_type}/{evaluation_id}"
     write_evaluation_manifest(out_dir, evaluation_id, evaluation_config)
-    s, t, i, sd = enumerate_specs(
+    # one materialization: the grid decides whether there is any work left
+    specs = enumerate_specs(
         suites,
         task_ids,
         episodes,
@@ -223,14 +226,14 @@ def _run_sweep(policy_type: str, suites: list[str], task_ids: list[int] | None, 
         out_dir=out_dir,
         policy_type=policy_type,
         model_id=recorded_model_id,
-    )
-    if not s:
+    ).collect()
+    if specs.count_rows() == 0:
         return {"policy_type": policy_type, "episodes": 0, "successes": 0,
                 "out_dir": out_dir, "summary": {}, "evaluation_id": evaluation_id,
                 "model_id": recorded_model_id, "evaluation_config": evaluation_config,
                 "note": "all episodes already on volume"}
     df = build_rollout_dataframe(
-        s, t, i, sd, policy_type=policy_type, out_dir=out_dir,
+        specs, suites, policy_type=policy_type, out_dir=out_dir,
         model_id=model_id, model_revision=model_revision, unnorm_key=unnorm_key,
         frames_dir=f"{OUTPUT_DIR}/frames/{policy_type}/{evaluation_id}",
         videos_dir=f"{OUTPUT_DIR}/videos/{policy_type}/{evaluation_id}",
@@ -238,9 +241,12 @@ def _run_sweep(policy_type: str, suites: list[str], task_ids: list[int] | None, 
     ).collect()
     MODEL_CACHE.commit()
     OUTPUTS.commit()
+    counts = df.agg(
+        daft.col("episode_id").count().alias("episodes"),
+        daft.col("success").cast(daft.DataType.int64()).sum().alias("successes"),
+    ).to_pydict()
+    n, n_success = counts["episodes"][0], counts["successes"][0] or 0
     summary = df.to_pydict()
-    n = len(summary.get("episode_id", []))
-    n_success = sum(summary.get("success", []))
     return {"policy_type": policy_type, "episodes": n, "successes": n_success,
             "out_dir": out_dir, "summary": summary, "evaluation_id": evaluation_id,
             "model_id": recorded_model_id, "evaluation_config": evaluation_config}

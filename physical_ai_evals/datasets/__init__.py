@@ -1,5 +1,5 @@
-"""Lazy robot dataset catalogs and readers."""
+"""Lazy robot dataset catalogs and readers for ingestion."""
 
-from physical_ai_evals.datasets import abc, aloha, egodex, libero_para, libero_pro
+from physical_ai_evals.datasets import abc, aloha, egodex
 
-__all__ = ["abc", "aloha", "egodex", "libero_para", "libero_pro"]
+__all__ = ["abc", "aloha", "egodex"]

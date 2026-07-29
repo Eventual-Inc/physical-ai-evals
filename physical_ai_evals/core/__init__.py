@@ -11,6 +11,7 @@ from physical_ai_evals.core.episode import PRIMARY, WRIST, Episode, Step
 from physical_ai_evals.core.schema import (
     ACTION_DIM,
     COLUMNS,
+    EEF_POS_DIM,
     EMBEDDING_DIM,
     ROLLOUT_SCHEMA,
     SCHEMA_VERSION,
@@ -31,6 +32,7 @@ __all__ = [
     "ACTION_DIM",
     "COLUMNS",
     "CORE_SUITES",
+    "EEF_POS_DIM",
     "EMBEDDING_DIM",
     "Episode",
     "IngestConfig",

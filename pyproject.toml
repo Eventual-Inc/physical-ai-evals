@@ -25,10 +25,7 @@ classifiers = [
 # Core stays lightweight (schema / writer / ingest base). Everything heavy — policies, sim,
 # dataset readers — is an optional extra so the package imports and tests run on a CPU box.
 dependencies = [
-  "pyarrow>=15",       # the rollout schema is a pyarrow schema
-  "numpy>=1.24",       # 1.x and 2.x both work here; the <2 pin lives in the openvla extra
-  "daft>=0.7.21",      # Hdf5File.read + daft.datasets.{lerobot,droid}
-  "huggingface-hub>=0.36.2",  # pinned Hub manifests for remote benchmark catalogs
+  "daft[huggingface, hdf5, video]>=0.7.21",      # Hdf5File.read + daft.datasets.{lerobot,droid}
   "pydantic>=2.7",     # Episode/Step + rollout config models
   "imageio[ffmpeg]>=2.34",  # mp4 rollout video capture
 ]
@@ -46,6 +43,8 @@ embed = [
 libero = [
   "hf-libero>=0.1.4; sys_platform == 'linux'",
 ]
+
+
 # OpenVLA's transformers pin conflicts with VLA-JEPA's stack — the two policies need
 # separate envs/images. flash-attn is intentionally NOT listed: its sdist needs torch at
 # build time, which breaks `uv lock` and fresh-env pip installs alike. The policy runs on
@@ -60,6 +59,8 @@ openvla = [
   "accelerate>=0.25.0",
   "pillow>=10.0",          # OpenVLA processor builds PIL.Image from the frame
 ]
+
+
 # Deliberately empty: lerobot is a git dep whose marker-conditional torch pins make uv's
 # universal lock unsatisfiable, so the Modal image
 # (physical_ai_evals/modal_vla_jepa_app.py)
@@ -68,9 +69,11 @@ openvla = [
 vla_jepa = []
 ingest_hdf5 = ["daft[hdf5]>=0.7.21"]  # robomimic/LIBERO demo ingest
 modal = ["modal>=0.64"]        # deployment only
+
+
 # Torch is installed from the CPU index by `make setup`/CI so contributors do not
 # accidentally resolve a CUDA wheel on development machines.
-dev = ["pytest>=8.0", "h5py>=3.10", "pillow>=10.0"]
+dev = ["pytest>=8.0"]
 
 [project.scripts]
 physical-ai-evals = "physical_ai_evals.cli:main"
@@ -79,6 +82,9 @@ physical-ai-evals = "physical_ai_evals.cli:main"
 # uv installs this group by default. Policy-adapter tests additionally need the CPU
 # Torch wheel installed by `make setup`.
 dev = ["pytest>=8.0", "h5py>=3.10", "pillow>=10.0"]
+
+[tool.uv]
+exclude-newer = "7 days"
 
 [tool.setuptools.packages.find]
 include = ["physical_ai_evals*"]

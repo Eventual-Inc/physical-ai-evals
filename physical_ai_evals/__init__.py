@@ -3,6 +3,7 @@ from __future__ import annotations
 from physical_ai_evals.core import (
     ACTION_DIM,
     COLUMNS,
+    EEF_POS_DIM,
     EMBEDDING_DIM,
     ROLLOUT_SCHEMA,
     SCHEMA_VERSION,
@@ -31,6 +32,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "COLUMNS",
     "ACTION_DIM",
+    "EEF_POS_DIM",
     "STATE_DIM",
     "EMBEDDING_DIM",
     "TERMINAL_FAILURE_LABELS",

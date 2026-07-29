@@ -4,33 +4,45 @@ import os
 import tempfile
 from pathlib import Path
 
+import daft
 import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 from physical_ai_evals.core.episode import Episode, Step
 from physical_ai_evals.core.schema import ROLLOUT_SCHEMA, validate_rows
 
 
+def _write_parquet_frame(
+    frame: daft.DataFrame,
+    path: Path,
+    *,
+    compression: str,
+) -> None:
+    frame.write_parquet(
+        path,
+        compression=compression,
+        single_file=True,
+        write_success_file=False,
+    )
+
+
 def write_rows(rows: list[dict], out_path: str | Path, *, compression: str = "snappy") -> Path:
     """Validate rows and atomically replace one Parquet part file."""
-    table: pa.Table = validate_rows(rows)
+    frame = validate_rows(rows)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary_name = tempfile.mkstemp(
+    with tempfile.TemporaryDirectory(
         dir=out_path.parent,
         prefix=f".{out_path.name}.",
         suffix=".tmp",
-    )
-    os.close(fd)
-    temporary_path = Path(temporary_name)
-    try:
-        pq.write_table(table, temporary_path, compression=compression)
+    ) as temporary_name:
+        temporary_dir = Path(temporary_name)
+        temporary_path = temporary_dir / "part.parquet"
+        _write_parquet_frame(frame, temporary_path, compression=compression)
+        if not temporary_path.is_file():
+            raise RuntimeError(f"Daft single-file write did not produce {temporary_path}")
         with temporary_path.open("rb") as temporary_file:
             os.fsync(temporary_file.fileno())
         os.replace(temporary_path, out_path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
     return out_path
 
 
@@ -193,10 +205,10 @@ class RolloutWriter:
 
 def assert_emits_schema(path: str | Path) -> None:
     """Assert a parquet part matches ``ROLLOUT_SCHEMA``."""
-    got = pq.read_schema(Path(path))
-    if not got.equals(ROLLOUT_SCHEMA, check_metadata=False):
-        got_fields = [(f.name, str(f.type)) for f in got]
-        want_fields = [(f.name, str(f.type)) for f in ROLLOUT_SCHEMA]
+    got = daft.Schema.from_parquet(str(path))
+    if got != ROLLOUT_SCHEMA:
+        got_fields = [(field.name, str(field.dtype)) for field in got]
+        want_fields = [(field.name, str(field.dtype)) for field in ROLLOUT_SCHEMA]
         raise AssertionError(
             f"schema mismatch for {path}\n  got : {got_fields}\n  want: {want_fields}"
         )

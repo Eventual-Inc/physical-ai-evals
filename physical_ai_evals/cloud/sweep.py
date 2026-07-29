@@ -14,6 +14,10 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import daft
+from daft import col, lit
+from daft.functions import format
+
 EVALUATION_PROTOCOL_VERSION = "rollout-v2"
 OPENVLA_REVISIONS: dict[str, str] = {
     "openvla/openvla-7b-finetuned-libero-spatial": (
@@ -137,7 +141,7 @@ def implementation_fingerprint(policy_type: str) -> str:
     """Hash rollout implementation sources so changed code gets a new namespace."""
     root = Path(__file__).resolve().parents[2]
     relative_paths = [
-        "physical_ai_evals/bench/libero.py",
+        "physical_ai_evals/bench/libero/_runner.py",
         "physical_ai_evals/cloud/rollout_udf.py",
         "physical_ai_evals/core/config.py",
         "physical_ai_evals/core/schema.py",
@@ -148,11 +152,15 @@ def implementation_fingerprint(policy_type: str) -> str:
     digest.update(EVALUATION_PROTOCOL_VERSION.encode())
     for relative_path in relative_paths:
         path = root / relative_path
+        if not path.is_file():
+            # A silent "<missing>" here would renumber every evaluation_id, break
+            # resume, and stop tracking the file it was supposed to fingerprint.
+            raise RuntimeError(
+                f"implementation_fingerprint cannot hash {relative_path}: file not found. "
+                "Update the path list after moving or renaming rollout sources."
+            )
         digest.update(relative_path.encode())
-        if path.is_file():
-            digest.update(path.read_bytes())
-        else:
-            digest.update(b"<missing>")
+        digest.update(path.read_bytes())
     return digest.hexdigest()[:16]
 
 
@@ -231,60 +239,73 @@ def write_evaluation_manifest(
     return manifest_path
 
 
-def _part_is_valid(
-    path: Path,
+def completed_episodes(
+    out_dir: str | Path,
     *,
-    suite: str,
-    task_id: int,
-    init_state_id: int,
+    policy_type: str,
+    model_id: str,
     seed: int,
-    policy_type: str | None,
-    model_id: str | None,
-) -> bool:
-    """Validate a completed episode part before treating it as resumable."""
-    try:
-        import pyarrow.parquet as pq
+) -> daft.DataFrame:
+    """Episode parts on the volume that are complete, matching, and safe to skip.
 
-        from physical_ai_evals.core.writer import assert_emits_schema
+    ``schema=`` rejects parts that do not conform to ``ROLLOUT_SCHEMA`` and
+    ``ignore_corrupt_files`` drops unreadable ones, so what used to be a
+    per-file pyarrow read is now scan configuration plus one grouped scan.
 
-        assert_emits_schema(path)
-        table = pq.read_table(
-            path,
-            columns=[
-                "episode_id",
-                "suite",
-                "task_id",
-                "init_state_id",
-                "seed",
-                "policy_type",
-                "model",
-                "num_steps",
-                "step_idx",
-            ],
+    Returns an empty frame when the volume holds no parts yet, which is the
+    normal state on the first run of an evaluation.
+    """
+    from physical_ai_evals.core.schema import ROLLOUT_SCHEMA
+
+    # Daft raises on a glob that matches nothing, so decide emptiness up front.
+    parts = sorted(str(part) for part in Path(out_dir).glob("*.parquet"))
+    if not parts:
+        return daft.from_pydict(
+            {"suite": [""], "task_id": [0], "init_state_id": [0]}
+        ).where(lit(False))
+
+    return (
+        daft.read_parquet(
+            parts,
+            infer_schema=False,
+            schema={field.name: field.dtype for field in ROLLOUT_SCHEMA},
+            ignore_corrupt_files=True,
         )
-        if table.num_rows == 0:
-            return False
-
-        expected: dict[str, object] = {
-            "episode_id": f"{suite}/{task_id}/{init_state_id}/{seed}",
-            "suite": suite,
-            "task_id": task_id,
-            "init_state_id": init_state_id,
-            "seed": seed,
-        }
-        if policy_type is not None:
-            expected["policy_type"] = policy_type
-        if model_id is not None:
-            expected["model"] = model_id
-        for column, value in expected.items():
-            if set(table.column(column).to_pylist()) != {value}:
-                return False
-
-        if set(table.column("num_steps").to_pylist()) != {table.num_rows}:
-            return False
-        return sorted(table.column("step_idx").to_pylist()) == list(range(table.num_rows))
-    except (OSError, ValueError, TypeError, KeyError, AssertionError):
-        return False
+        .where(
+            (col("policy_type") == lit(policy_type))
+            & (col("model") == lit(model_id))
+            & (col("seed") == lit(seed))
+        )
+        .groupby("episode_id", "suite", "task_id", "init_state_id")
+        .agg(
+            col("step_idx").count().alias("rows"),
+            col("step_idx").min().alias("first_step"),
+            col("step_idx").max().alias("last_step"),
+            col("step_idx").count_distinct().alias("distinct_steps"),
+            col("num_steps").min().alias("declared_min"),
+            col("num_steps").max().alias("declared_max"),
+        )
+        .where(
+            # identity matches the filename contract, steps run 0..n-1 with no
+            # gaps or duplicates, and every row agrees num_steps == the row count
+            (
+                col("episode_id")
+                == format(
+                    "{}/{}/{}/{}",
+                    col("suite"),
+                    col("task_id"),
+                    col("init_state_id"),
+                    lit(seed),
+                )
+            )
+            & (col("first_step") == lit(0))
+            & (col("last_step") == col("rows") - lit(1))
+            & (col("distinct_steps") == col("rows"))
+            & (col("declared_min") == col("rows"))
+            & (col("declared_max") == col("rows"))
+        )
+        .select("suite", "task_id", "init_state_id")
+    )
 
 
 def enumerate_specs(
@@ -296,35 +317,34 @@ def enumerate_specs(
     *,
     policy_type: str | None = None,
     model_id: str | None = None,
-) -> tuple[list[str], list[int], list[int], list[int]]:
-    """Expand specs, skipping only valid, matching Parquet episode parts."""
-    from physical_ai_evals.bench.libero import libero_num_tasks
+) -> daft.DataFrame:
+    """The suite x task x episode grid, minus validated parts already on the volume.
 
-    s_col, t_col, i_col, seed_col, skipped = [], [], [], [], 0
-    for suite in suites:
-        tasks = task_ids if task_ids is not None else range(libero_num_tasks(suite))
-        for task_id in tasks:
-            for init_state_id in range(episodes):
-                path = (
-                    Path(out_dir) / f"{suite}__{task_id}__{init_state_id}__{seed}.parquet"
-                    if out_dir
-                    else None
-                )
-                if path is not None and path.is_file() and _part_is_valid(
-                    path,
-                    suite=suite,
-                    task_id=int(task_id),
-                    init_state_id=init_state_id,
-                    seed=seed,
-                    policy_type=policy_type,
-                    model_id=model_id,
-                ):
-                    skipped += 1
-                    continue
-                s_col.append(suite)
-                t_col.append(int(task_id))
-                i_col.append(init_state_id)
-                seed_col.append(seed)
-    if skipped:
-        print(f"[resume] skipping {skipped} validated episodes already on the volume")
-    return s_col, t_col, i_col, seed_col
+    Returns a lazy frame with the ``suite``/``task_id``/``init_state_id``/``seed``
+    columns the rollout UDF consumes, so specs flow into the run without a
+    round trip through Python lists.
+    """
+
+    def tasks_for(suite: str) -> list[int]:
+        if task_ids is not None:
+            return [int(task_id) for task_id in task_ids]
+        # the one unavoidable Python call: task counts come from the libero package
+        from physical_ai_evals.bench.libero import libero_num_tasks
+
+        return list(range(libero_num_tasks(suite)))
+
+    grid = (
+        daft.from_pydict(
+            {"suite": list(suites), "task_id": [tasks_for(suite) for suite in suites]}
+        )
+        .explode("task_id")
+        .join(daft.from_pydict({"init_state_id": list(range(episodes))}), how="cross")
+        .with_column("seed", lit(seed))
+    )
+    if out_dir is None or policy_type is None or model_id is None:
+        return grid
+    return grid.join(
+        completed_episodes(out_dir, policy_type=policy_type, model_id=model_id, seed=seed),
+        on=["suite", "task_id", "init_state_id"],
+        how="anti",
+    )

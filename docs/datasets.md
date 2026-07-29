@@ -60,7 +60,7 @@ terms.
 
 ```python
 import daft
-from physical_ai_evals.datasets import libero_para
+from physical_ai_evals.bench.libero import libero_para
 
 tasks = libero_para.raw()
 tasks = tasks.where(
@@ -89,7 +89,7 @@ The default source is `HAI-Lab/LIBERO-Para` at revision
 
 ```python
 import daft
-from physical_ai_evals.datasets import libero_pro
+from physical_ai_evals.bench.libero import libero_pro
 
 tasks = libero_pro.raw()
 tasks = tasks.where(
@@ -113,7 +113,9 @@ The ALOHA, EgoDex, and ABC readers verify the current Hub commit before construc
 LeRobot read plan. Daft 0.7.21 reads the remote Parquet and video shards lazily; frame video
 is decoded only when `load_video_frames` is set.
 
-LIBERO catalog construction calls the Hugging Face manifest API but does not download task files.
+LIBERO catalog construction uses Daft to glob Hugging Face repository metadata without
+downloading task files. It verifies the repository revision before and after discovery,
+then constructs revision-pinned direct file paths.
 `instructions()` adds a lazy Daft expression based on `bddl_path.download()`. Filter and
 limit first so execution reads only the selected BDDL files.
 

@@ -97,39 +97,46 @@ def test_resume_requires_valid_matching_parquet(tmp_path):
     )
     part = write_episode(_episode(model=model), tmp_path, run_id="evaluation-deadbeef")
 
-    specs = enumerate_specs(
-        ["libero_goal"],
-        [0],
-        1,
-        7,
-        out_dir=str(tmp_path),
-        policy_type="openvla",
-        model_id=model,
-    )
-    assert specs == ([], [], [], [])
+    def specs_for(model_id: str) -> dict:
+        return (
+            enumerate_specs(
+                ["libero_goal"],
+                [0],
+                1,
+                7,
+                out_dir=str(tmp_path),
+                policy_type="openvla",
+                model_id=model_id,
+            )
+            .select("suite", "task_id", "init_state_id", "seed")
+            .to_pydict()
+        )
 
-    wrong_model_specs = enumerate_specs(
-        ["libero_goal"],
-        [0],
-        1,
-        7,
-        out_dir=str(tmp_path),
-        policy_type="openvla",
-        model_id="different/model@" + "b" * 40,
-    )
-    assert wrong_model_specs == (["libero_goal"], [0], [0], [7])
+    pending = {"suite": ["libero_goal"], "task_id": [0], "init_state_id": [0], "seed": [7]}
+    empty = {"suite": [], "task_id": [], "init_state_id": [], "seed": []}
+
+    # a valid, matching part is skipped
+    assert specs_for(model) == empty
+    # a part written by a different model is not resumable
+    assert specs_for("different/model@" + "b" * 40) == pending
 
     part.write_bytes(b"truncated parquet")
-    corrupt_specs = enumerate_specs(
-        ["libero_goal"],
-        [0],
-        1,
-        7,
-        out_dir=str(tmp_path),
-        policy_type="openvla",
-        model_id=model,
+    # an unreadable part is not resumable
+    assert specs_for(model) == pending
+
+    # the first run of an evaluation has no parts on the volume at all
+    part.unlink()
+    assert specs_for(model) == pending
+    assert (
+        enumerate_specs(
+            ["libero_goal"], [0], 1, 7,
+            out_dir=str(tmp_path / "never-written"),
+            policy_type="openvla", model_id=model,
+        )
+        .select("suite", "task_id", "init_state_id", "seed")
+        .to_pydict()
+        == pending
     )
-    assert corrupt_specs == (["libero_goal"], [0], [0], [7])
 
 
 def test_write_rows_failure_preserves_previous_part_and_cleans_temp(tmp_path, monkeypatch):
@@ -138,11 +145,14 @@ def test_write_rows_failure_preserves_previous_part_and_cleans_temp(tmp_path, mo
     target = write_rows(rows, tmp_path / "episode.parquet")
     previous = target.read_bytes()
 
-    def fail_after_partial_write(_table, path, **_kwargs):
+    def fail_after_partial_write(_frame, path, **_kwargs):
         path.write_bytes(b"partial")
         raise RuntimeError("simulated interrupted parquet write")
 
-    monkeypatch.setattr("physical_ai_evals.core.writer.pq.write_table", fail_after_partial_write)
+    monkeypatch.setattr(
+        "physical_ai_evals.core.writer._write_parquet_frame",
+        fail_after_partial_write,
+    )
     with pytest.raises(RuntimeError, match="interrupted"):
         write_rows(rows, target)
 

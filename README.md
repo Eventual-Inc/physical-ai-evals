@@ -7,6 +7,11 @@ Python tools for querying robot datasets, normalizing demonstrations, and evalua
 policies on LIBERO. Rollouts use a shared one-row-per-step Parquet schema so they can be
 queried with [Daft](https://github.com/Eventual-Inc/Daft).
 
+The current `rollout-v2` schema stores actions, proprioceptive state, and end-effector
+positions as fixed-shape Daft tensors, and reserves a typed 1,024-dimensional embedding
+column. Read complete rollout parts with `daft.read_parquet()` so those logical types and
+nullable tensor values are reconstructed as NumPy arrays.
+
 ## Install
 
 Python 3.12 is the tested runtime.
@@ -48,7 +53,7 @@ LIBERO-Para and LIBERO-PRO expose manifest-only task catalogs with revision-pinn
 
 ```python
 import daft
-from physical_ai_evals.datasets import libero_para, libero_pro
+from physical_ai_evals.bench.libero import libero_para, libero_pro
 
 para = libero_para.raw()
 para = para.where(daft.col("environment_task_id") == 3).limit(5)

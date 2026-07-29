@@ -135,6 +135,8 @@ def run_sweep_vla_jepa(suites: list[str], task_ids: list[int] | None = None, epi
                        model_id: str = CHECKPOINT_REPO,
                        model_revision: str = CHECKPOINT_REVISION, seed: int = 7,
                        write_video: bool = True) -> dict:
+    import daft
+
     from physical_ai_evals.cloud.rollout_udf import build_rollout_dataframe
     from physical_ai_evals.cloud.sweep import (
         enumerate_specs,
@@ -184,7 +186,8 @@ def run_sweep_vla_jepa(suites: list[str], task_ids: list[int] | None = None, epi
     evaluation_id = evaluation_fingerprint(evaluation_config)
     out_dir = f"{OUTPUT_DIR}/rollouts/vla_jepa/{evaluation_id}"
     write_evaluation_manifest(out_dir, evaluation_id, evaluation_config)
-    s, t, i, sd = enumerate_specs(
+    # one materialization: the grid decides whether there is any work left
+    specs = enumerate_specs(
         suites,
         task_ids,
         episodes,
@@ -192,14 +195,14 @@ def run_sweep_vla_jepa(suites: list[str], task_ids: list[int] | None = None, epi
         out_dir=out_dir,
         policy_type="vla_jepa",
         model_id=recorded_model_id,
-    )
-    if not s:
+    ).collect()
+    if specs.count_rows() == 0:
         return {"policy_type": "vla_jepa", "episodes": 0, "successes": 0,
                 "out_dir": out_dir, "summary": {}, "evaluation_id": evaluation_id,
                 "model_id": recorded_model_id, "evaluation_config": evaluation_config,
                 "note": "all episodes already on volume"}
     df = build_rollout_dataframe(
-        s, t, i, sd,
+        specs, suites,
         policy_type="vla_jepa",
         out_dir=out_dir,
         model_id=model_id,
@@ -214,9 +217,12 @@ def run_sweep_vla_jepa(suites: list[str], task_ids: list[int] | None = None, epi
     ).collect()
     MODEL_CACHE.commit()
     OUTPUTS.commit()
+    counts = df.agg(
+        daft.col("episode_id").count().alias("episodes"),
+        daft.col("success").cast(daft.DataType.int64()).sum().alias("successes"),
+    ).to_pydict()
+    n, n_success = counts["episodes"][0], counts["successes"][0] or 0
     summary = df.to_pydict()
-    n = len(summary.get("episode_id", []))
-    n_success = sum(summary.get("success", []))
     return {"policy_type": "vla_jepa", "episodes": n, "successes": n_success,
             "out_dir": out_dir, "summary": summary, "evaluation_id": evaluation_id,
             "model_id": recorded_model_id, "evaluation_config": evaluation_config}
