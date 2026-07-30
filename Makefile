@@ -31,7 +31,8 @@ setup: ## Create the frozen dev venv (Python 3.12 + CPU Torch), mirroring CI
 	uv sync --frozen --extra modal
 	# CPU wheel keeps all policy-adapter tests active without resolving a CUDA stack.
 	@if [ "$$(uname -s)" = "Linux" ]; then \
-		uv pip install torch==2.2.0 --index-url https://download.pytorch.org/whl/cpu; \
+		uv pip install torch==2.2.0 --index https://download.pytorch.org/whl/cpu \
+			--index-strategy unsafe-best-match; \
 	else \
 		uv pip install torch==2.2.0; \
 	fi
