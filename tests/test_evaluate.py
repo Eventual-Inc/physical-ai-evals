@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import daft
 import pytest
-from daft import col
+from daft import col, lit
 from daft.functions import to_struct
 
 import physical_ai_evals.rollout as rollout
@@ -87,6 +88,60 @@ def test_evaluate_is_deterministic_lazy_and_resumable(tmp_path):
     assert _signatures(resumed) == (EPISODE_SIGNATURE, STEP_SIGNATURE)
     # A fully complete resume does not instantiate the model or runtime.
     assert counter.read_text(encoding="utf-8").splitlines() == ["initialized"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("instruction", "changed instruction"),
+        ("bddl_path", "/changed/task.bddl"),
+        ("init_path", "/changed/init.pt"),
+        ("task_name", "changed_task"),
+        ("max_steps", 21),
+    ],
+)
+def test_rollout_affecting_specs_change_evaluation_identity(tmp_path, field, value):
+    benchmark = mock_benchmark(task_ids=(0,), episodes=1)
+    changed = replace(
+        benchmark,
+        specs=benchmark.specs.with_column(field, lit(value)),
+    )
+
+    original = evaluate(
+        mock_policy(),
+        benchmark,
+        out=tmp_path / "runs",
+        write_video=False,
+    )
+    modified = evaluate(
+        mock_policy(),
+        changed,
+        out=tmp_path / "runs",
+        write_video=False,
+    )
+
+    assert modified.evaluation_id != original.evaluation_id
+    assert modified.path != original.path
+
+
+def test_video_mode_changes_evaluation_identity(tmp_path):
+    benchmark = mock_benchmark(task_ids=(0,), episodes=1)
+    without_video = evaluate(
+        mock_policy(),
+        benchmark,
+        out=tmp_path / "runs",
+        write_video=False,
+    )
+    with_video = evaluate(
+        mock_policy(),
+        benchmark,
+        out=tmp_path / "runs",
+        write_video=True,
+    )
+
+    assert with_video.evaluation_id != without_video.evaluation_id
+    assert with_video.path != without_video.path
+    assert with_video.episodes.to_pydict()["primary_video_path"][0] is not None
 
 
 def test_batched_actor_matches_scalar_signature_and_captures_profile(tmp_path):

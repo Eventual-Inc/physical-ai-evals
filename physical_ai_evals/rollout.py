@@ -831,20 +831,7 @@ def _canonical_specs(benchmark: Benchmark) -> tuple[DataFrame, str]:
     ordered: dict[str, Any] = {name: data[name] for name in _SPEC_COLUMNS}
     canonical = json.dumps(
         [
-            {
-                key: ordered[key][index]
-                for key in (
-                    "episode_key",
-                    "episode_id",
-                    "benchmark",
-                    "benchmark_revision",
-                    "suite",
-                    "task_key",
-                    "init_state_id",
-                    "seed",
-                    "max_steps",
-                )
-            }
+            {name: ordered[name][index] for name in _SPEC_COLUMNS}
             for index in range(count)
         ],
         sort_keys=True,
@@ -968,6 +955,7 @@ def evaluate(
             "execution": {
                 "env_batch_size": env_batch_size,
                 "profile": profile,
+                "write_video": write_video,
             },
         },
         specs_sha256=specs_hash,
