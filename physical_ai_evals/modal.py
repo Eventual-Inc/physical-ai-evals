@@ -7,6 +7,7 @@ conflict.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import modal
@@ -23,6 +24,8 @@ from physical_ai_evals.policy import (
     VLA_JEPA_MODEL_ID,
     VLA_JEPA_REVISION,
 )
+
+logger = logging.getLogger(__name__)
 
 APP_DIR = "/workspace"
 MODEL_CACHE_DIR = "/models"
@@ -254,7 +257,7 @@ def _smoke_benchmark(
         libero_pro_tasks,
     )
 
-    print(f"[smoke] selecting {benchmark_name} spec", flush=True)
+    logger.info("selecting %s spec", benchmark_name)
     if benchmark_name == "libero":
         benchmark = libero(suite, task_ids=[0], episodes=env_batch_size)
     elif benchmark_name == "libero_para":
@@ -271,22 +274,22 @@ def _smoke_benchmark(
         raise ValueError("unknown benchmark")
 
     specs = list(benchmark.specs.sort("init_state_id").iter_rows())
-    print(f"[smoke] {len(specs)} specs materialized; constructing runtime", flush=True)
+    logger.info("%d specs materialized; constructing runtime", len(specs))
     runtime = benchmark.runtime_factory(camera_height=64, camera_width=64)
     try:
         prepare_runtime = getattr(runtime, "prepare", None)
         if callable(prepare_runtime):
             prepare_runtime()
-        print("[smoke] opening vector environment", flush=True)
+        logger.info("opening vector environment")
         environment, instructions, init_states, task_names = runtime.open_batch(specs)
-        print("[smoke] resetting vector environment", flush=True)
+        logger.info("resetting vector environment")
         environment.reset()
         observations = environment.set_init_state(init_states)
-        print("[smoke] stepping vector environment", flush=True)
+        logger.info("stepping vector environment")
         next_observations, rewards, dones, _ = environment.step(
             np.zeros((len(specs), 7), dtype=np.float32)
         )
-        print("[smoke] vector environment step complete", flush=True)
+        logger.info("vector environment step complete")
         observation = observations[0]
         next_observation = next_observations[0]
         return {
@@ -302,7 +305,7 @@ def _smoke_benchmark(
             "libero_pro_revision": LIBERO_PRO_CODE_REVISION,
         }
     finally:
-        print("[smoke] closing runtime", flush=True)
+        logger.info("closing runtime")
         runtime.close()
 
 
@@ -313,16 +316,16 @@ def smoke_openvla(
     perturbations: list[str] | None = None,
     env_batch_size: int = 2,
 ) -> dict[str, Any]:
-    print("[smoke] OpenVLA container entered", flush=True)
+    logger.info("OpenVLA container entered")
     import numpy
 
-    print("[smoke] NumPy imported", flush=True)
+    logger.info("NumPy imported")
     import torch
 
-    print("[smoke] Torch imported", flush=True)
+    logger.info("Torch imported")
     import transformers
 
-    print("[smoke] Transformers imported", flush=True)
+    logger.info("Transformers imported")
     result = _smoke_benchmark(benchmark_name, suite, perturbations, env_batch_size)
     return {
         **result,
