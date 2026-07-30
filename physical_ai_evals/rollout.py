@@ -327,42 +327,74 @@ def _observation_rows(observations: Any, count: int) -> list[Mapping[str, Any]]:
     )
 
 
-class _GpuSampler:
-    """Low-rate nvidia-smi sampling for rollout-level utilization evidence."""
+class _ResourceSampler:
+    """Low-rate host and GPU sampling for rollout-level utilization evidence."""
 
     def __init__(self, interval_seconds: float = 0.5) -> None:
         self.interval_seconds = interval_seconds
-        self.samples: list[tuple[float, float, float]] = []
+        self.samples: list[tuple[float, float, float, float]] = []
+        self._has_gpu = shutil.which("nvidia-smi") is not None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
-        if shutil.which("nvidia-smi") is None:
-            return
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def _run(self) -> None:
+        cpu_seconds_fn: Callable[[], float]
+        try:
+            import psutil
+
+            root_process = psutil.Process()
+
+            def cpu_seconds() -> float:
+                total = 0.0
+                for process in (root_process, *root_process.children(recursive=True)):
+                    try:
+                        times = process.cpu_times()
+                    except psutil.Error:
+                        continue
+                    total += float(times.user + times.system)
+                return total
+
+            cpu_seconds_fn = cpu_seconds
+        except ImportError:
+            cpu_seconds_fn = partial(float, "nan")
+        previous_cpu_seconds = cpu_seconds_fn()
+        previous_wall = time.perf_counter()
         while not self._stop.is_set():
+            utilization = memory = power = float("nan")
             try:
-                completed = subprocess.run(
-                    [
-                        "nvidia-smi",
-                        "--query-gpu=utilization.gpu,memory.used,power.draw",
-                        "--format=csv,noheader,nounits",
-                    ],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=2,
-                )
-                first = completed.stdout.splitlines()[0]
-                utilization, memory, power = (
-                    float(value.strip()) for value in first.split(",")[:3]
-                )
-                self.samples.append((utilization, memory, power))
+                if self._has_gpu:
+                    completed = subprocess.run(
+                        [
+                            "nvidia-smi",
+                            "--query-gpu=utilization.gpu,memory.used,power.draw",
+                            "--format=csv,noheader,nounits",
+                        ],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=2,
+                    )
+                    first = completed.stdout.splitlines()[0]
+                    utilization, memory, power = (
+                        float(value.strip()) for value in first.split(",")[:3]
+                    )
             except (IndexError, OSError, subprocess.SubprocessError, ValueError):
                 pass
+            current_cpu_seconds = cpu_seconds_fn()
+            current_wall = time.perf_counter()
+            elapsed = current_wall - previous_wall
+            busy_cores = (
+                max(0.0, current_cpu_seconds - previous_cpu_seconds) / elapsed
+                if elapsed > 0.0
+                else float("nan")
+            )
+            previous_cpu_seconds = current_cpu_seconds
+            previous_wall = current_wall
+            self.samples.append((utilization, memory, power, busy_cores))
             self._stop.wait(self.interval_seconds)
 
     def finish(self) -> dict[str, Any]:
@@ -371,21 +403,35 @@ class _GpuSampler:
             self._thread.join(timeout=3)
         if not self.samples:
             return {
+                "resource_samples": 0,
                 "gpu_samples": 0,
                 "gpu_utilization_mean": None,
                 "gpu_utilization_p95": None,
                 "gpu_utilization_max": None,
                 "gpu_memory_mib_max": None,
                 "gpu_power_watts_mean": None,
+                "cpu_cores_busy_mean": None,
+                "cpu_cores_busy_p95": None,
+                "cpu_cores_busy_max": None,
             }
         values = np.asarray(self.samples, dtype=np.float64)
+
+        def aggregate(column: int, operation: Callable[[np.ndarray], float]) -> float | None:
+            samples = values[:, column]
+            samples = samples[~np.isnan(samples)]
+            return float(operation(samples)) if samples.size else None
+
         return {
-            "gpu_samples": len(self.samples),
-            "gpu_utilization_mean": float(values[:, 0].mean()),
-            "gpu_utilization_p95": float(np.percentile(values[:, 0], 95)),
-            "gpu_utilization_max": float(values[:, 0].max()),
-            "gpu_memory_mib_max": float(values[:, 1].max()),
-            "gpu_power_watts_mean": float(values[:, 2].mean()),
+            "resource_samples": len(self.samples),
+            "gpu_samples": int(np.count_nonzero(~np.isnan(values[:, 0]))),
+            "gpu_utilization_mean": aggregate(0, np.mean),
+            "gpu_utilization_p95": aggregate(0, partial(np.percentile, q=95)),
+            "gpu_utilization_max": aggregate(0, np.max),
+            "gpu_memory_mib_max": aggregate(1, np.max),
+            "gpu_power_watts_mean": aggregate(2, np.mean),
+            "cpu_cores_busy_mean": aggregate(3, np.mean),
+            "cpu_cores_busy_p95": aggregate(3, partial(np.percentile, q=95)),
+            "cpu_cores_busy_max": aggregate(3, np.max),
         }
 
 
@@ -428,7 +474,7 @@ def _run_batch(
         raise ValueError("one rollout batch must use one process seed")
     _seed_process(next(iter(seeds)))
 
-    sampler = _GpuSampler()
+    sampler = _ResourceSampler()
     started = time.perf_counter()
     reset_seconds = 0.0
     settle_seconds = 0.0

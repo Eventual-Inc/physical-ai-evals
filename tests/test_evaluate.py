@@ -164,6 +164,7 @@ def test_batched_actor_matches_scalar_signature_and_captures_profile(tmp_path):
     assert len(profiles) == 3
     assert {profile["batch_size"] for profile in profiles} == {2}
     assert all(profile["transitions"] > 0 for profile in profiles)
+    assert all("cpu_cores_busy_mean" in profile for profile in profiles)
 
 
 def test_rollout_actor_is_a_real_daft_batch_expression():
