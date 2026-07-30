@@ -8,6 +8,7 @@ conflict.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Any
 
 import modal
@@ -242,34 +243,45 @@ def _benchmark(
 def _smoke_benchmark(
     benchmark_name: str,
     suite: str,
+    tasks: list[str] | None,
     perturbations: list[str] | None,
     env_batch_size: int,
 ) -> dict[str, Any]:
     """Construct, reset, and step a real MuJoCo subprocess vector."""
     import numpy as np
-    from daft import col, lit
 
     from physical_ai_evals import (
         libero,
         libero_para,
-        libero_para_tasks,
         libero_pro,
-        libero_pro_tasks,
     )
 
     logger.info("selecting %s spec", benchmark_name)
     if benchmark_name == "libero":
-        benchmark = libero(suite, task_ids=[0], episodes=env_batch_size)
+        task_ids = [int(task) for task in tasks] if tasks else [0]
+        benchmark = libero(suite, task_ids=task_ids, episodes=env_batch_size)
     elif benchmark_name == "libero_para":
-        tasks = libero_para_tasks().where(col("task_id") == lit(0))
-        if perturbations:
-            tasks = tasks.where(col("perturbation").is_in(perturbations))
-        benchmark = libero_para(tasks=tasks.limit(1), episodes=env_batch_size)
+        task_ids = [int(task) for task in tasks] if tasks else [0]
+        benchmark = libero_para(
+            task_ids=task_ids,
+            paraphrase_types=perturbations,
+            episodes=env_batch_size,
+        )
+        benchmark = replace(
+            benchmark,
+            specs=benchmark.specs.sort(["task_key", "init_state_id"]).limit(env_batch_size),
+        )
     elif benchmark_name == "libero_pro":
-        tasks = libero_pro_tasks().where(col("suite") == lit(suite))
-        selected = perturbations or ["lan"]
-        tasks = tasks.where(col("perturbation").is_in(selected))
-        benchmark = libero_pro(suite, tasks=tasks.limit(1), episodes=env_batch_size)
+        benchmark = libero_pro(
+            suite,
+            perturbations=perturbations or ["lan"],
+            task_keys=tasks,
+            episodes=env_batch_size,
+        )
+        benchmark = replace(
+            benchmark,
+            specs=benchmark.specs.sort(["task_key", "init_state_id"]).limit(env_batch_size),
+        )
     else:
         raise ValueError("unknown benchmark")
 
@@ -313,6 +325,7 @@ def _smoke_benchmark(
 def smoke_openvla(
     benchmark_name: str = "libero",
     suite: str = "libero_spatial",
+    tasks: list[str] | None = None,
     perturbations: list[str] | None = None,
     env_batch_size: int = 2,
 ) -> dict[str, Any]:
@@ -326,7 +339,13 @@ def smoke_openvla(
     import transformers
 
     logger.info("Transformers imported")
-    result = _smoke_benchmark(benchmark_name, suite, perturbations, env_batch_size)
+    result = _smoke_benchmark(
+        benchmark_name,
+        suite,
+        tasks,
+        perturbations,
+        env_batch_size,
+    )
     return {
         **result,
         "numpy": numpy.__version__,
@@ -339,6 +358,7 @@ def smoke_openvla(
 def smoke_vla_jepa(
     benchmark_name: str = "libero",
     suite: str = "libero_spatial",
+    tasks: list[str] | None = None,
     perturbations: list[str] | None = None,
     env_batch_size: int = 2,
 ) -> dict[str, Any]:
@@ -348,7 +368,13 @@ def smoke_vla_jepa(
     import transformers
     from lerobot.policies.factory import get_policy_class
 
-    result = _smoke_benchmark(benchmark_name, suite, perturbations, env_batch_size)
+    result = _smoke_benchmark(
+        benchmark_name,
+        suite,
+        tasks,
+        perturbations,
+        env_batch_size,
+    )
     return {
         **result,
         "lerobot": getattr(lerobot, "__version__", LEROBOT_REVISION),
@@ -565,6 +591,7 @@ def modal_main(
             function.remote(
                 benchmark_name=benchmark,
                 suite=suite,
+                tasks=task_list,
                 perturbations=perturbation_list,
                 env_batch_size=env_batch_size,
             )

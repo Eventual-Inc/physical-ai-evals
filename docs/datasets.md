@@ -42,26 +42,26 @@ if the repository moved.
 | `ABC_130K` | `lerobot/abc_130k_v3_train` | `68651e4929d9fb00f798937b2d62617cab5c771d` |
 | `ABC_130K_SMOKE` | `lerobot/abc_130k_v3_smoke` | `b342a0ff262195d49bae3eece6e3f40c6e1dbe15` |
 
-## LIBERO task catalogs
+## LIBERO task plans
 
-LIBERO-Para and LIBERO-Pro task manifests are benchmark inputs rather than
-LeRobot datasets:
+Each LIBERO constructor exposes its lazy executable episode plan directly:
 
 ```python
 import daft
-from physical_ai_evals import libero_para_tasks, libero_pro_tasks
+from physical_ai_evals import libero_para, libero_pro
 
-para = libero_para_tasks().where(daft.col("task_id") == 3)
+para = libero_para(task_ids=[3], episodes=1).specs
 para.groupby("perturbation").agg(
     daft.col("bddl_path").count().alias("variants")
 ).show()
 
-pro = libero_pro_tasks().where(
-    (daft.col("suite") == "libero_spatial")
-    & (daft.col("perturbation") == "lan")
-)
+pro = libero_pro(
+    "libero_spatial",
+    perturbations=["lan"],
+    episodes=1,
+).specs
 pro.select("task_key", "bddl_path", "init_path").show()
 ```
 
-The catalogs use Daft glob, regex, join, and expression nodes. BDDL contents are
-downloaded only after benchmark selection adds the instruction expression.
+The constructors use Daft glob, regex, join, download, and expression nodes to
+turn the benchmark files into rows that the LIBERO runtime can execute.
