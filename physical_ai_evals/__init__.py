@@ -5,9 +5,7 @@ from __future__ import annotations
 from physical_ai_evals.libero import (
     libero,
     libero_para,
-    libero_para_tasks,
     libero_pro,
-    libero_pro_tasks,
 )
 from physical_ai_evals.policy import (
     BatchPolicy,
@@ -41,9 +39,7 @@ __all__ = [
     "evaluate",
     "libero",
     "libero_para",
-    "libero_para_tasks",
     "libero_pro",
-    "libero_pro_tasks",
     "openvla",
     "read_evaluation",
     "vla_jepa",

@@ -7,6 +7,8 @@ conflict.
 
 from __future__ import annotations
 
+import logging
+from dataclasses import replace
 from typing import Any
 
 import modal
@@ -23,6 +25,8 @@ from physical_ai_evals.policy import (
     VLA_JEPA_MODEL_ID,
     VLA_JEPA_REVISION,
 )
+
+logger = logging.getLogger(__name__)
 
 APP_DIR = "/workspace"
 MODEL_CACHE_DIR = "/models"
@@ -239,54 +243,65 @@ def _benchmark(
 def _smoke_benchmark(
     benchmark_name: str,
     suite: str,
+    tasks: list[str] | None,
     perturbations: list[str] | None,
     env_batch_size: int,
 ) -> dict[str, Any]:
     """Construct, reset, and step a real MuJoCo subprocess vector."""
     import numpy as np
-    from daft import col, lit
 
     from physical_ai_evals import (
         libero,
         libero_para,
-        libero_para_tasks,
         libero_pro,
-        libero_pro_tasks,
     )
 
-    print(f"[smoke] selecting {benchmark_name} spec", flush=True)
+    logger.info("selecting %s spec", benchmark_name)
     if benchmark_name == "libero":
-        benchmark = libero(suite, task_ids=[0], episodes=env_batch_size)
+        task_ids = [int(task) for task in tasks] if tasks else [0]
+        benchmark = libero(suite, task_ids=task_ids, episodes=env_batch_size)
     elif benchmark_name == "libero_para":
-        tasks = libero_para_tasks().where(col("task_id") == lit(0))
-        if perturbations:
-            tasks = tasks.where(col("perturbation").is_in(perturbations))
-        benchmark = libero_para(tasks=tasks.limit(1), episodes=env_batch_size)
+        task_ids = [int(task) for task in tasks] if tasks else [0]
+        benchmark = libero_para(
+            task_ids=task_ids,
+            paraphrase_types=perturbations,
+            episodes=env_batch_size,
+        )
+        benchmark = replace(
+            benchmark,
+            specs=benchmark.specs.sort(["task_key", "init_state_id"]).limit(env_batch_size),
+        )
     elif benchmark_name == "libero_pro":
-        tasks = libero_pro_tasks().where(col("suite") == lit(suite))
-        selected = perturbations or ["lan"]
-        tasks = tasks.where(col("perturbation").is_in(selected))
-        benchmark = libero_pro(suite, tasks=tasks.limit(1), episodes=env_batch_size)
+        benchmark = libero_pro(
+            suite,
+            perturbations=perturbations or ["lan"],
+            task_keys=tasks,
+            episodes=env_batch_size,
+        )
+        benchmark = replace(
+            benchmark,
+            specs=benchmark.specs.sort(["task_key", "init_state_id"]).limit(env_batch_size),
+        )
     else:
         raise ValueError("unknown benchmark")
 
     specs = list(benchmark.specs.sort("init_state_id").iter_rows())
-    print(f"[smoke] {len(specs)} specs materialized; constructing runtime", flush=True)
+    logger.info("%d specs materialized; constructing runtime", len(specs))
     runtime = benchmark.runtime_factory(camera_height=64, camera_width=64)
     try:
         prepare_runtime = getattr(runtime, "prepare", None)
         if callable(prepare_runtime):
             prepare_runtime()
-        print("[smoke] opening vector environment", flush=True)
+        logger.info("opening vector environment")
         environment, instructions, init_states, task_names = runtime.open_batch(specs)
-        print("[smoke] resetting vector environment", flush=True)
+        logger.info("resetting vector environment")
         environment.reset()
         observations = environment.set_init_state(init_states)
-        print("[smoke] stepping vector environment", flush=True)
+        logger.info("stepping vector environment")
         next_observations, rewards, dones, _ = environment.step(
             np.zeros((len(specs), 7), dtype=np.float32)
         )
-        print("[smoke] vector environment step complete", flush=True)
+        logger.info("vector environment step complete")
         observation = observations[0]
         next_observation = next_observations[0]
         return {
@@ -302,7 +317,7 @@ def _smoke_benchmark(
             "libero_pro_revision": LIBERO_PRO_CODE_REVISION,
         }
     finally:
-        print("[smoke] closing runtime", flush=True)
+        logger.info("closing runtime")
         runtime.close()
 
 
@@ -310,20 +325,27 @@ def _smoke_benchmark(
 def smoke_openvla(
     benchmark_name: str = "libero",
     suite: str = "libero_spatial",
+    tasks: list[str] | None = None,
     perturbations: list[str] | None = None,
     env_batch_size: int = 2,
 ) -> dict[str, Any]:
-    print("[smoke] OpenVLA container entered", flush=True)
+    logger.info("OpenVLA container entered")
     import numpy
 
-    print("[smoke] NumPy imported", flush=True)
+    logger.info("NumPy imported")
     import torch
 
-    print("[smoke] Torch imported", flush=True)
+    logger.info("Torch imported")
     import transformers
 
-    print("[smoke] Transformers imported", flush=True)
-    result = _smoke_benchmark(benchmark_name, suite, perturbations, env_batch_size)
+    logger.info("Transformers imported")
+    result = _smoke_benchmark(
+        benchmark_name,
+        suite,
+        tasks,
+        perturbations,
+        env_batch_size,
+    )
     return {
         **result,
         "numpy": numpy.__version__,
@@ -336,6 +358,7 @@ def smoke_openvla(
 def smoke_vla_jepa(
     benchmark_name: str = "libero",
     suite: str = "libero_spatial",
+    tasks: list[str] | None = None,
     perturbations: list[str] | None = None,
     env_batch_size: int = 2,
 ) -> dict[str, Any]:
@@ -345,7 +368,13 @@ def smoke_vla_jepa(
     import transformers
     from lerobot.policies.factory import get_policy_class
 
-    result = _smoke_benchmark(benchmark_name, suite, perturbations, env_batch_size)
+    result = _smoke_benchmark(
+        benchmark_name,
+        suite,
+        tasks,
+        perturbations,
+        env_batch_size,
+    )
     return {
         **result,
         "lerobot": getattr(lerobot, "__version__", LEROBOT_REVISION),
@@ -562,6 +591,7 @@ def modal_main(
             function.remote(
                 benchmark_name=benchmark,
                 suite=suite,
+                tasks=task_list,
                 perturbations=perturbation_list,
                 env_batch_size=env_batch_size,
             )
