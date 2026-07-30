@@ -3,10 +3,7 @@
 [![CI](https://github.com/Eventual-Inc/physical-ai-evals/actions/workflows/ci.yml/badge.svg)](https://github.com/Eventual-Inc/physical-ai-evals/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 
-Run OpenVLA and VLA-JEPA on LIBERO, LIBERO-Para, and LIBERO-Pro from one Python
-3.12 API. The stateful model/simulator loop stays in one process; Daft handles
-episode specification, resume planning, typed Parquet writes, lazy reads, and
-metrics.
+Run OpenVLA and VLA-JEPA on LIBERO, LIBERO-Para, and LIBERO-Pro all in Python 3.12
 
 ```python
 import physical_ai_evals as pae
