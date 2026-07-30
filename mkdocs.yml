@@ -1,6 +1,6 @@
 site_name: physical-ai-evals
 site_description: >-
-  Query robot datasets and evaluate VLA policies on LIBERO.
+  Evaluate OpenVLA and VLA-JEPA on LIBERO, LIBERO-Para, and LIBERO-Pro.
 site_url: https://eventual-inc.github.io/physical-ai-evals/
 repo_url: https://github.com/Eventual-Inc/physical-ai-evals
 repo_name: Eventual-Inc/physical-ai-evals
@@ -43,6 +43,6 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Dataset catalogs: datasets.md
+  - Dataset readers: datasets.md
   - Evaluation protocol: evaluation.md
   - Troubleshooting: troubleshooting.md

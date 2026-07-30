@@ -1,135 +1,83 @@
-# Dataset catalogs
+# Dataset readers
 
-## ALOHA
+## Generic LeRobot v3
+
+The reader functions return Daft DataFrames directly:
 
 ```python
-from physical_ai_evals.datasets import aloha
+from physical_ai_evals.datasets import (
+    ALOHA,
+    lerobot,
+    lerobot_episodes,
+    lerobot_tasks,
+)
 
-episodes = aloha.episodes()
-episodes.select("episode_index", "tasks", "length").show()
-
-frames = aloha.raw(load_video_frames=False)
-frames.where(frames["episode_index"] == 0).limit(100).show()
+episodes = lerobot_episodes(ALOHA)
+tasks = lerobot_tasks(ALOHA)
+frames = lerobot(ALOHA, load_video_frames=False)
 ```
 
-`episodes()` returns one row per episode. `raw()` returns one row per frame and leaves video
-encoded unless `load_video_frames` names a camera. The default public sample is
-`lerobot/aloha_mobile_shrimp` at revision
-`6e828202059d2cc204b61ff968c232d202127a34`.
+`lerobot()` decodes no video unless `load_video_frames` names a camera (or is
+`True`). `lerobot_episodes()` reads episode metadata only.
+
+`LeRobotSource` binds a Hugging Face dataset to an exact revision:
+
+```python
+from physical_ai_evals.datasets import LeRobotSource, lerobot_episodes
+
+source = LeRobotSource("organization/dataset", "<40-character-commit>")
+lerobot_episodes(source).show()
+```
+
+Daft 0.7.21 recursive Hugging Face globs lose the `@revision` component in
+listed paths. The wrapper therefore verifies that the repository head still
+equals the recorded commit before constructing the lazy read. It fails closed
+if the repository moved.
+
+## Recorded sources
+
+| Constant | Dataset | Revision |
+|---|---|---|
+| `ALOHA` | `lerobot/aloha_mobile_shrimp` | `6e828202059d2cc204b61ff968c232d202127a34` |
+| `ABC_130K` | `lerobot/abc_130k_v3_train` | `68651e4929d9fb00f798937b2d62617cab5c771d` |
+| `ABC_130K_SMOKE` | `lerobot/abc_130k_v3_smoke` | `b342a0ff262195d49bae3eece6e3f40c6e1dbe15` |
 
 ## EgoDex
 
-The EgoDex conversion stores each activity and split as an independent LeRobot dataset.
-Inspect that structure before selecting an activity:
+EgoDex stores each activity/split at a nested LeRobot root:
 
 ```python
-from physical_ai_evals.datasets import egodex
-
-egodex.catalog(split="test").select("task_name", "dataset_uri").show()
-episodes = egodex.episodes("add_remove_lid", split="test")
-episodes.limit(5).show()
-```
-
-`catalog()` queries only the Hugging Face manifest. `raw(activity, split=...)` returns the
-selected frame table and accepts Daft's `load_video_frames` option. The default source is
-`griffinlabs/EgoDex-LeRobot-v3.0` at revision
-`41d60b449629b2181ff5b735d31c2a2cf8b3cad8`.
-
-## ABC-130K
-
-```python
-from physical_ai_evals.datasets import abc
-
-episodes = abc.episodes(
-    repo_id=abc.SMOKE_REPO_ID,
-    revision=abc.SMOKE_REVISION,
+from physical_ai_evals.datasets import (
+    egodex,
+    egodex_catalog,
+    lerobot_episodes,
 )
-episodes.select("episode_index", "tasks", "length").show()
+
+egodex_catalog(split="test").select("task_name", "dataset_uri").show()
+source = egodex("add_remove_lid", split="test")
+lerobot_episodes(source).limit(5).show()
 ```
 
-`abc.raw()` defaults to the public `lerobot/abc_130k_v3_train` conversion at revision
-`68651e4929d9fb00f798937b2d62617cab5c771d`. The smaller
-`lerobot/abc_130k_v3_smoke` source at revision
-`b342a0ff262195d49bae3eece6e3f40c6e1dbe15` is useful for testing queries.
+## LIBERO task catalogs
 
-The original `XDOF/ABC-130k` repository is gated and stores raw MCAP data. These helpers
-query the public LeRobot conversion; they do not bypass the original repository's access
-terms.
-
-## LIBERO-Para
+LIBERO-Para and LIBERO-Pro task manifests are benchmark inputs rather than
+LeRobot datasets:
 
 ```python
 import daft
-from physical_ai_evals.datasets import libero_para
+from physical_ai_evals import libero_para_tasks, libero_pro_tasks
 
-tasks = libero_para.raw()
-tasks = tasks.where(
-    (daft.col("environment_task_id") == 3)
-    & (daft.col("paraphrase_type") == "obj")
-).limit(20)
-tasks = libero_para.instructions(tasks)
-tasks.show()
-```
+para = libero_para_tasks().where(daft.col("task_id") == 3)
+para.groupby("perturbation").agg(
+    daft.col("bddl_path").count().alias("variants")
+).show()
 
-`raw()` returns one row per published BDDL variant with:
-
-| Column | Meaning |
-|---|---|
-| `environment_suite` | Base LIBERO suite used by the tasks |
-| `environment_task_id` | Base environment task |
-| `paraphrase_type` | `act`, `obj`, or `comp` |
-| `paraphrase_key` | Perturbed language component |
-| `variant_id` | Published variant number |
-| `bddl_path` | Revision-pinned `hf://` path |
-
-The default source is `HAI-Lab/LIBERO-Para` at revision
-`d306f66f8b441cad1155b21a3f69e440079c81c9`.
-
-## LIBERO-PRO
-
-```python
-import daft
-from physical_ai_evals.datasets import libero_pro
-
-tasks = libero_pro.raw()
-tasks = tasks.where(
+pro = libero_pro_tasks().where(
     (daft.col("suite") == "libero_spatial")
     & (daft.col("perturbation") == "lan")
-).limit(20)
-tasks = libero_pro.instructions(tasks)
-tasks.show()
+)
+pro.select("task_key", "bddl_path", "init_path").show()
 ```
 
-`raw()` returns one row per published BDDL task with its base `suite`, `suite_variant`,
-`perturbation`, `bddl_path`, and an `init_path` when the repository contains a matching
-initial-state file.
-
-The default source is `zhouxueyang/LIBERO-Pro` at revision
-`c86fc3b8293185a6f373677018ff3e37f8391602`.
-
-## Query behavior
-
-The ALOHA, EgoDex, and ABC readers verify the current Hub commit before constructing Daft's
-LeRobot read plan. Daft 0.7.21 reads the remote Parquet and video shards lazily; frame video
-is decoded only when `load_video_frames` is set.
-
-LIBERO catalog construction calls the Hugging Face manifest API but does not download task files.
-`instructions()` adds a lazy Daft expression based on `bddl_path.download()`. Filter and
-limit first so execution reads only the selected BDDL files.
-
-Dataset readers accept an `io_config` for authenticated or customized object-store access.
-Pass alternate `repo_id` and `revision` values explicitly when using a fork.
-
-Daft also exposes `daft.datasets.droid.raw()` for the published DROID dataset. Use that
-reader directly rather than wrapping it here.
-
-Dataset licenses and simulator dependencies are not installed or redistributed by these
-catalogs.
-
-## Published rollout trace
-
-The historical LIBERO-Spatial trace is stored in the
-[`Eventual-Inc/physical-ai-evals-libero-spatial-pilot`](https://huggingface.co/datasets/Eventual-Inc/physical-ai-evals-libero-spatial-pilot)
-Hugging Face dataset. Revision
-`ddb8a88fcc579ebf077a9ca2d1e026a7e1cf4429` contains 23,283 `rollout-v1` transition rows.
-Its dataset card documents the missing execution and model provenance.
+The catalogs use Daft glob, regex, join, and expression nodes. BDDL contents are
+downloaded only after benchmark selection adds the instruction expression.

@@ -1,46 +1,40 @@
 # %% [markdown]
-# # Query LIBERO task catalogs
-#
-# Catalog construction reads Hugging Face repository manifests. BDDL contents are read only
-# for the filtered rows passed to `instructions()`.
+# # Query LIBERO-Para and LIBERO-Pro task catalogs
 
 # %%
 import daft
 
-from physical_ai_evals.datasets import libero_para, libero_pro
+from physical_ai_evals import libero_para_tasks, libero_pro_tasks
 
 # %% [markdown]
 # ## LIBERO-Para variants
 
 # %%
-para = libero_para.raw()
-para.groupby("paraphrase_type").agg(
+para = libero_para_tasks()
+para.groupby("perturbation").agg(
     daft.col("bddl_path").count().alias("tasks")
-).sort("paraphrase_type").show()
+).sort("perturbation").show()
 
 # %%
-para_sample = para.where(
-    (daft.col("environment_task_id") == 3)
-    & (daft.col("paraphrase_type") == "obj")
-).limit(5)
-libero_para.instructions(para_sample).select(
-    "task_name", "paraphrase_key", "instruction"
-).show()
+para.where(
+    (daft.col("task_id") == 3) & (daft.col("perturbation") == "obj")
+).select(
+    "task_key", "paraphrase_key", "bddl_path"
+).limit(5).show()
 
 # %% [markdown]
-# ## LIBERO-PRO perturbations
+# ## LIBERO-Pro perturbations
 
 # %%
-pro = libero_pro.raw()
+pro = libero_pro_tasks()
 pro.groupby("suite", "perturbation").agg(
     daft.col("bddl_path").count().alias("tasks")
 ).sort(["suite", "perturbation"]).show()
 
 # %%
-pro_sample = pro.where(
+pro.where(
     (daft.col("suite") == "libero_spatial")
     & (daft.col("perturbation") == "lan")
-).limit(5)
-libero_pro.instructions(pro_sample).select(
-    "suite_variant", "task_name", "instruction"
-).show()
+).select(
+    "task_key", "bddl_path", "init_path"
+).limit(5).show()

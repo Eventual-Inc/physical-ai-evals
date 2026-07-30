@@ -3,8 +3,8 @@
 The examples are stored as Jupytext-compatible Python files so their code is reviewable in a
 diff.
 
-`query_libero_catalogs.py` queries the published LIBERO-Para and LIBERO-PRO repository
-manifests, summarizes their task variants, and reads a small filtered set of BDDL instructions.
+`query_libero_catalogs.py` queries the published LIBERO-Para and LIBERO-Pro
+repository manifests and summarizes task variants.
 
 `query_lerobot_datasets.py` queries ALOHA, EgoDex, and the ABC-130K smoke conversion without
 decoding video.

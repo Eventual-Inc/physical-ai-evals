@@ -1,58 +1,112 @@
 # Evaluation protocol
 
-VLA success rates are sensitive to evaluator details that are not captured by a suite name
-and seed alone. Record the following for every result:
+## Execution boundary
 
-- code revision and dirty-tree status;
-- model repository and immutable revision;
-- suite, task id, initial-state id, and number of trials;
-- Python, NumPy, Torch, policy, and simulator seeds;
-- camera selection, orientation, resize, and crop;
-- proprioceptive-state fields;
-- action normalization and gripper convention;
-- action-chunk length and execution policy;
-- stabilization steps and episode step cap; and
-- simulator, benchmark, CUDA, driver, and dependency versions.
+One `evaluate()` call constructs one policy and one benchmark runtime. The
+policy remains loaded across every pending episode. The simulator runtime
+caches the active environment and initial-state set.
 
-## Reference differences
+For each episode:
 
-The pinned OpenVLA and VLA-JEPA LIBERO evaluators use 50 fixed initial states per task, but
-their runtime behavior differs:
+1. seed Python, NumPy, Torch, CUDA, and the environment;
+2. call `env.reset()` before `set_init_state()` so robosuite's horizon state
+   cannot leak across episodes;
+3. execute stabilization actions;
+4. rotate both LIBERO camera views by 180 degrees;
+5. reset the policy with the selected instruction;
+6. run actions until `done` or the suite step cap;
+7. stream both cameras to temporary MP4s and atomically rename them;
+8. write the typed step partition; and
+9. write the episode outcome as the completion marker.
 
-| Setting | OpenVLA reference | VLA-JEPA reference |
-|---|---|---|
-| General seed default | 7 | 7 |
-| LIBERO environment seed | hard-coded 0 | requested seed |
-| Agent-view image | rotated 180 degrees | rotated 180 degrees |
-| Step cap, spatial suite | 220 | 250 |
-| Action behavior | one action per observation | checkpoint-defined chunks |
+A completion is resumable only when its step indices are unique and contiguous
+from zero and the episode `length` matches the step count. Corrupt Parquet is
+ignored and re-run. A crash after steps but before the completion row causes the
+same episode partition to be overwritten.
 
-Sources:
+## Benchmark mappings
 
-- [OpenVLA evaluator](https://github.com/openvla/openvla/blob/c8f03f48af692657d3060c19588038c7220e9af9/experiments/robot/libero/run_libero_eval.py)
-- [OpenVLA LIBERO utilities](https://github.com/openvla/openvla/blob/c8f03f48af692657d3060c19588038c7220e9af9/experiments/robot/libero/libero_utils.py)
-- [VLA-JEPA evaluator](https://github.com/ginwind/VLA-JEPA/blob/ec8c70f6e155e2377bbd4d787004c14179c00c7c/examples/LIBERO/eval_libero.py)
+| Benchmark | Simulator task | Instruction | Initial state |
+|---|---|---|---|
+| LIBERO | selected standard suite/task | standard task language | standard fixed states |
+| LIBERO-Para | corresponding LIBERO-Goal task ID | selected Para BDDL language | standard LIBERO-Goal fixed states |
+| LIBERO-Pro | published Pro BDDL | published Pro BDDL language | paired published Pro `.pruned_init` |
 
-Treat these as model-specific reference implementations, not one interchangeable protocol.
+All three use the pinned LIBERO-Pro code revision
+`eafdb809426b13153aa1e4c42d6601844217dfec`. The fork retains the standard
+benchmark definitions and adds the Pro objects/assets needed by perturbed BDDL.
+Para dataset revision
+`d306f66f8b441cad1155b21a3f69e440079c81c9` and Pro dataset revision
+`c86fc3b8293185a6f373677018ff3e37f8391602` are recorded in manifests.
 
-## Stored row timing
+## Policy mappings
 
-The current `rollout-v1` schema stores a transition per row:
+OpenVLA checkpoint and action unnormalization keys are locked to one base
+suite. LIBERO-Para uses the LIBERO-Goal checkpoint. LIBERO-Pro uses the
+checkpoint for its base suite.
 
-| Fields | Timing |
+VLA-JEPA uses:
+
+- checkpoint `lerobot/VLA-JEPA-LIBERO@735d9f692981e286ade093b5046627eda876e5d0`;
+- LeRobot `052d329470ea8d5c98a4b4bd1f6c18abd0ac7c34`;
+- Qwen3-VL `89644892e4d85e24eaac8bacfd4f463576704203`; and
+- V-JEPA2 `b3c1679b7c34d3255ef3547f27c7b226aefab26f`.
+
+The latter two repository names are mutable inside the upstream checkpoint
+config, so the adapter replaces them with exact local snapshots before model
+construction.
+
+## Output schema
+
+`manifest.json` contains the schema version, immutable policy identity,
+benchmark revision and metadata, canonical episode-spec hash, implementation
+source hash, interpreter/platform versions, package versions, and GPU details.
+These values are not repeated per step.
+
+`episodes` contains one row per episode specification, including task identity,
+instruction, initial-state identity, outcome, length, and relative video paths.
+`steps` contains the LeRobot-aligned transition fields:
+
+| Field | Type |
 |---|---|
-| `frame_path`, `wrist_path`, `state` | observation before the action |
-| `action`, `gripper_action` | selected action |
-| `reward`, `done` | transition result |
-| `eef_pos`, `gripper_state` | observation after the action |
+| `episode_index`, `frame_index` | `Int64` |
+| `timestamp` | `Float32` |
+| `action` | `Tensor[Float32; 7]` |
+| `observation.state` | `Tensor[Float32; 8]` |
+| `observation.eef_position` | `Tensor[Float32; 3]` |
+| `observation.gripper` | `Float32` |
+| `reward` | `Float32` |
+| `next.done` | `Bool` |
 
-The terminal next image is not stored. Analysis that combines pre-action image/state with
-post-action end-effector or gripper values must account for that offset.
+The trace mirrors LeRobot's episode/step/video concepts, but is not a complete
+LeRobot training repository: it does not synthesize `meta/info.json`, task
+indices, aggregate statistics, or multi-episode video shards.
 
-## Output identity
+## Reproduction gates
 
-`episode_id` identifies an episode specification and can intentionally be shared by multiple
-policies. Group step records by `(policy_type, episode_id)`, not `episode_id` alone.
+The CPU conformance benchmark runs in the repository's one Python 3.12
+environment and pins:
 
-Every published result should include its resolved configuration, per-episode outcomes,
-per-task aggregates, raw step records or a documented omission, and checksums.
+- exact canonical episode and step content signatures;
+- one policy construction across all episodes;
+- zero policy construction on a complete resume;
+- rollout-crash recovery;
+- steps-before-completion recovery;
+- corrupt and wrong-schema Parquet handling; and
+- real MP4 finalization.
+
+Modal smoke functions construct, reset, initialize, and step a real MuJoCo
+environment in each policy image. They accept all three benchmark families.
+
+GPU acceptance compares per-episode `success` and `length`, not bitwise action
+tensors. CUDA kernels are not forced into deterministic algorithms because that
+would make the validation path slower and less representative of production.
+
+## Historical trace
+
+The published
+[`physical-ai-evals-libero-spatial-pilot`](https://huggingface.co/datasets/Eventual-Inc/physical-ai-evals-libero-spatial-pilot)
+at revision `ddb8a88fcc579ebf077a9ca2d1e026a7e1cf4429` remains a
+`rollout-v1` read fixture. It is not regenerated as `eval-v1` and is not a
+benchmark reproduction reference: its simulator seed was unverified, it used
+10 rather than 50 initial states, and it lacks current model/runtime provenance.
