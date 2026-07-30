@@ -42,22 +42,6 @@ if the repository moved.
 | `ABC_130K` | `lerobot/abc_130k_v3_train` | `68651e4929d9fb00f798937b2d62617cab5c771d` |
 | `ABC_130K_SMOKE` | `lerobot/abc_130k_v3_smoke` | `b342a0ff262195d49bae3eece6e3f40c6e1dbe15` |
 
-## EgoDex
-
-EgoDex stores each activity/split at a nested LeRobot root:
-
-```python
-from physical_ai_evals.datasets import (
-    egodex,
-    egodex_catalog,
-    lerobot_episodes,
-)
-
-egodex_catalog(split="test").select("task_name", "dataset_uri").show()
-source = egodex("add_remove_lid", split="test")
-lerobot_episodes(source).limit(5).show()
-```
-
 ## LIBERO task catalogs
 
 LIBERO-Para and LIBERO-Pro task manifests are benchmark inputs rather than

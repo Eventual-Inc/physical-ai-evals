@@ -10,8 +10,6 @@ import pytest
 from physical_ai_evals.datasets import (
     ALOHA,
     LeRobotSource,
-    egodex,
-    egodex_catalog,
     lerobot,
     lerobot_episodes,
     lerobot_tasks,
@@ -58,39 +56,3 @@ def test_readers_are_thin_daft_pipelines(monkeypatch):
     assert lerobot_tasks(ALOHA).column_names == ["task_index"]
     assert [call[0] for call in calls] == ["read", "episodes", "tasks"]
     assert {call[1] for call in calls} == {"hf://datasets/lerobot/aloha_mobile_shrimp"}
-
-
-def test_egodex_source_validates_path_segments():
-    source = egodex("add_remove_lid", split="test")
-    assert source.subpath == "test/add_remove_lid"
-
-    with pytest.raises(ValueError, match="split"):
-        egodex("task", split="validation")
-    with pytest.raises(ValueError, match="path-safe"):
-        egodex("../escape")
-
-
-def test_egodex_catalog_is_expression_based(monkeypatch):
-    monkeypatch.setattr(datasets, "_check_revision", lambda *_args: None)
-    root = "hf://datasets/griffinlabs/EgoDex-LeRobot-v3.0"
-    monkeypatch.setattr(
-        daft,
-        "from_glob_path",
-        lambda *_args, **_kwargs: daft.from_pydict(
-            {
-                "path": [
-                    f"{root}/test/add_remove_lid/meta/info.json",
-                    f"{root}/train/write/meta/info.json",
-                ]
-            }
-        ),
-    )
-
-    data = egodex_catalog().sort(["split", "task_name"]).to_pydict()
-
-    assert data["split"] == ["test", "train"]
-    assert data["task_name"] == ["add_remove_lid", "write"]
-    assert data["dataset_uri"] == [
-        f"{root}/test/add_remove_lid",
-        f"{root}/train/write",
-    ]

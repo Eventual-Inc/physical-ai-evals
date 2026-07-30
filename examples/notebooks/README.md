@@ -6,7 +6,7 @@ diff.
 `query_libero_catalogs.py` queries the published LIBERO-Para and LIBERO-Pro
 repository manifests and summarizes task variants.
 
-`query_lerobot_datasets.py` queries ALOHA, EgoDex, and the ABC-130K smoke conversion without
+`query_lerobot_datasets.py` queries ALOHA and the ABC-130K smoke conversion without
 decoding video.
 
 Run it from the repository root:
