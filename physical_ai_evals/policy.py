@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, TypedDict
@@ -34,6 +34,14 @@ class Policy(Protocol):
     def close(self) -> None: ...
 
 
+class BatchPolicy(Policy, Protocol):
+    """Optional policy extension for synchronized environment batches."""
+
+    def reset_batch(self, instructions: Sequence[str]) -> None: ...
+
+    def act_batch(self, observations: Sequence[Observation]) -> np.ndarray: ...
+
+
 @dataclass(frozen=True)
 class PolicySpec:
     """Reproducible policy factory loaded once by the rollout process."""
@@ -58,6 +66,7 @@ class PolicySpec:
             )
         if self.control_mode != "relative":
             raise ValueError("LIBERO currently supports only relative actions")
+
 
 OPENVLA_CHECKPOINTS: dict[str, tuple[str, str, str]] = {
     "libero_spatial": (
@@ -186,9 +195,9 @@ class OpenVLAPolicy:
     def reset(self, instruction: str) -> None:
         self._instruction = instruction
 
-    def act(self, observation: Observation) -> np.ndarray:
+    def _act(self, observation: Observation, instruction: str) -> np.ndarray:
         image = _center_crop(observation["image"]) if self.center_crop else observation["image"]
-        inputs = self.processor(_PROMPT.format(instruction=self._instruction), _as_pil(image))
+        inputs = self.processor(_PROMPT.format(instruction=instruction), _as_pil(image))
         if hasattr(inputs, "to"):
             import torch
 
@@ -203,6 +212,28 @@ class OpenVLAPolicy:
         gripper = 2.0 * (result[-1] - 0.5)
         result[-1] = -(1.0 if gripper > 0.0 else -1.0)
         return result
+
+    def act(self, observation: Observation) -> np.ndarray:
+        return self._act(observation, observation.get("instruction") or self._instruction)
+
+    def reset_batch(self, instructions: Sequence[str]) -> None:
+        self._instructions = list(instructions)
+
+    def act_batch(self, observations: Sequence[Observation]) -> np.ndarray:
+        """Run a CPU environment batch through upstream batch-one decoding.
+
+        OpenVLA's pinned remote implementation rejects generation batches larger
+        than one. Keeping the loop here still lets MuJoCo environments advance
+        concurrently without loading more than one copy of the model.
+        """
+        if len(observations) != len(self._instructions):
+            raise ValueError("OpenVLA observation batch does not match the reset instruction batch")
+        return np.stack(
+            [
+                self._act(observation, observation.get("instruction") or instruction)
+                for observation, instruction in zip(observations, self._instructions, strict=True)
+            ]
+        )
 
     def close(self) -> None:
         self.model = None
@@ -301,37 +332,51 @@ class VLAJEPAPolicy:
         )
 
     def reset(self, instruction: str) -> None:
-        self._instruction = instruction
+        self.reset_batch([instruction])
+
+    def reset_batch(self, instructions: Sequence[str]) -> None:
+        self._instructions = list(instructions)
         self.model.reset()
 
     def act(self, observation: Observation) -> np.ndarray:
+        return self.act_batch([observation])[0]
+
+    def act_batch(self, observations: Sequence[Observation]) -> np.ndarray:
         import torch
 
-        wrist = observation.get("wrist_image")
-        if wrist is None:
+        wrists = [observation.get("wrist_image") for observation in observations]
+        if any(wrist is None for wrist in wrists):
             raise ValueError("VLA-JEPA requires the LIBERO wrist camera")
+        if len(observations) != len(self._instructions):
+            raise ValueError(
+                "VLA-JEPA observation batch does not match the reset instruction batch"
+            )
         batch: dict[str, Any] = {
-            "observation.images.image": self._image(observation["image"]),
-            "observation.images.image2": self._image(wrist),
-            "task": observation.get("instruction") or self._instruction,
+            "observation.images.image": torch.stack(
+                [self._image(observation["image"]) for observation in observations]
+            ),
+            "observation.images.image2": torch.stack([self._image(wrist) for wrist in wrists]),
+            "task": [
+                observation.get("instruction") or instruction
+                for observation, instruction in zip(observations, self._instructions, strict=True)
+            ],
         }
-        state = observation.get("state")
-        if state is not None:
-            batch["observation.state"] = torch.from_numpy(np.asarray(state, np.float32)).unsqueeze(
-                0
+        states = [observation.get("state") for observation in observations]
+        if all(state is not None for state in states):
+            batch["observation.state"] = torch.from_numpy(
+                np.stack([np.asarray(state, np.float32) for state in states])
             )
         with torch.inference_mode():
             action = self.postprocessor(self.model.select_action(self.preprocessor(batch)))
-        return np.asarray(_to_numpy(action), dtype=np.float32).reshape(-1)[:ACTION_DIM]
+        result = np.asarray(_to_numpy(action), dtype=np.float32)
+        return result.reshape(len(observations), -1)[:, :ACTION_DIM].copy()
 
     @staticmethod
     def _image(image: Any):
         import torch
 
         array = np.ascontiguousarray(np.asarray(image))
-        return (
-            torch.from_numpy(array).permute(2, 0, 1).contiguous().float().div_(255.0).unsqueeze(0)
-        )
+        return torch.from_numpy(array).permute(2, 0, 1).contiguous().float().div_(255.0)
 
     def close(self) -> None:
         self.model = None
@@ -371,6 +416,7 @@ def vla_jepa(
 
 
 __all__ = [
+    "BatchPolicy",
     "Observation",
     "OpenVLAPolicy",
     "Policy",

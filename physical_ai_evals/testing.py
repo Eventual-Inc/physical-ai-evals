@@ -64,6 +64,45 @@ class MockEnvironment:
         return None
 
 
+class MockVectorEnvironment:
+    def __init__(self, environments: Sequence[MockEnvironment]) -> None:
+        self.environments = list(environments)
+
+    def seed(self, seeds: Sequence[int]) -> None:
+        for environment, seed in zip(self.environments, seeds, strict=True):
+            environment.seed(seed)
+
+    def reset(self):
+        return [environment.reset() for environment in self.environments]
+
+    def set_init_state(self, init_states):
+        return [
+            environment.set_init_state(init_state)
+            for environment, init_state in zip(self.environments, init_states, strict=True)
+        ]
+
+    def step(self, actions, id=None):
+        ids = list(range(len(self.environments))) if id is None else list(id)
+        returns = [
+            self.environments[index].step(action)
+            for index, action in zip(ids, actions, strict=True)
+        ]
+        observations, rewards, dones, infos = zip(*returns, strict=True)
+        return (
+            list(observations),
+            np.asarray(rewards, dtype=np.float32),
+            np.asarray(dones, dtype=bool),
+            np.asarray(infos, dtype=object),
+        )
+
+    def check_success(self):
+        return [environment.check_success() for environment in self.environments]
+
+    def close(self) -> None:
+        for environment in self.environments:
+            environment.close()
+
+
 @dataclass
 class MockRuntime:
     camera_height: int = 16
@@ -71,6 +110,7 @@ class MockRuntime:
 
     def __post_init__(self) -> None:
         self.environment: MockEnvironment | None = None
+        self.vector_environment: MockVectorEnvironment | None = None
         self.key: tuple[int, int] | None = None
 
     def open(self, spec: Mapping[str, Any]):
@@ -88,10 +128,33 @@ class MockRuntime:
             f"mock_task_{task_id}",
         )
 
+    def open_batch(self, specs: Sequence[Mapping[str, Any]]):
+        self.close()
+        environments = [
+            MockEnvironment(
+                int(spec["task_id"]),
+                int(spec["seed"]),
+                self.camera_height,
+                self.camera_width,
+            )
+            for spec in specs
+        ]
+        self.vector_environment = MockVectorEnvironment(environments)
+        self.vector_environment.seed([int(spec["seed"]) for spec in specs])
+        return (
+            self.vector_environment,
+            [f"perform mock task {int(spec['task_id'])}" for spec in specs],
+            [np.array([spec["init_state_id"]], dtype=np.float32) for spec in specs],
+            [f"mock_task_{int(spec['task_id'])}" for spec in specs],
+        )
+
     def close(self) -> None:
         if self.environment is not None:
             self.environment.close()
+        if self.vector_environment is not None:
+            self.vector_environment.close()
         self.environment = None
+        self.vector_environment = None
         self.key = None
 
 
@@ -123,31 +186,55 @@ class MockPolicy:
         return None
 
 
+class BatchMockPolicy(MockPolicy):
+    def reset_batch(self, instructions: Sequence[str]) -> None:
+        self.batch_times = np.zeros(len(instructions), dtype=np.int64)
+        self.batch_biases = np.asarray([len(value) % 7 for value in instructions], dtype=np.float32)
+
+    def act_batch(self, observations: Sequence[Observation]) -> np.ndarray:
+        del observations
+        self.batch_times += 1
+        actions = np.repeat(
+            (self.gain * self.batch_times + 0.01 * self.batch_biases)[:, None],
+            ACTION_DIM,
+            axis=1,
+        ).astype(np.float32)
+        actions[:, -1] = np.where(self.batch_times % 2, 1.0, -1.0)
+        return actions
+
+
 @dataclass(frozen=True)
 class _MockPolicyFactory:
     gain: float
     counter_path: str | None
+    batched: bool
 
     def __call__(self) -> MockPolicy:
         if self.counter_path is not None:
             with Path(self.counter_path).open("a", encoding="utf-8") as stream:
                 stream.write("initialized\n")
-        return MockPolicy(self.gain)
+        policy_type = BatchMockPolicy if self.batched else MockPolicy
+        return policy_type(self.gain)
 
 
 def mock_policy(
     *,
     gain: float = 0.03,
     counter_path: str | Path | None = None,
+    batched: bool = False,
 ) -> PolicySpec:
     return PolicySpec(
-        factory=_MockPolicyFactory(gain, None if counter_path is None else str(counter_path)),
+        factory=_MockPolicyFactory(
+            gain,
+            None if counter_path is None else str(counter_path),
+            batched,
+        ),
         policy_id="physical-ai-evals/mock-policy",
         revision=MOCK_REVISION,
         camera_height=16,
         camera_width=16,
         num_steps_wait=0,
-        metadata={"gain": gain},
+        metadata={"gain": gain, "batched": batched},
     )
 
 

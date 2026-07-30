@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import daft
 import pytest
+from daft import col
+from daft.functions import to_struct
 
 import physical_ai_evals.rollout as rollout
 from physical_ai_evals import canonical_signature, evaluate, read_evaluation
@@ -84,6 +87,47 @@ def test_evaluate_is_deterministic_lazy_and_resumable(tmp_path):
     assert _signatures(resumed) == (EPISODE_SIGNATURE, STEP_SIGNATURE)
     # A fully complete resume does not instantiate the model or runtime.
     assert counter.read_text(encoding="utf-8").splitlines() == ["initialized"]
+
+
+def test_batched_actor_matches_scalar_signature_and_captures_profile(tmp_path):
+    counter = tmp_path / "policy-loads.txt"
+    evaluation = evaluate(
+        mock_policy(counter_path=counter, batched=True),
+        mock_benchmark(),
+        out=tmp_path / "runs",
+        write_video=False,
+        env_batch_size=2,
+        profile=True,
+    )
+
+    assert _signatures(evaluation) == (EPISODE_SIGNATURE, STEP_SIGNATURE)
+    assert counter.read_text(encoding="utf-8").splitlines() == ["initialized"]
+    profiles = [
+        json.loads(line)
+        for line in (evaluation.path / "profiles.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(profiles) == 3
+    assert {profile["batch_size"] for profile in profiles} == {2}
+    assert all(profile["transitions"] > 0 for profile in profiles)
+
+
+def test_rollout_actor_is_a_real_daft_batch_expression():
+    benchmark = mock_benchmark(task_ids=(0,), episodes=2)
+    specs, _ = rollout._canonical_specs(benchmark)
+    actor = rollout.RolloutActor(
+        mock_policy(batched=True),
+        benchmark.runtime_factory,
+        media_dir=None,
+        profile=False,
+    )
+    result = specs.with_column(
+        "_rollout",
+        actor.rollout(to_struct(*(col(name) for name in rollout._SPEC_COLUMNS))),
+    ).collect()
+
+    values = result.to_pydict()["_rollout"]
+    assert len(values) == 2
+    assert [value["num_steps"] for value in values] == [5, 5]
 
 
 def test_episode_failure_lands_prior_work_and_resume_repairs(tmp_path, monkeypatch):
@@ -178,9 +222,7 @@ def test_wrong_schema_file_is_ignored(tmp_path):
         out=tmp_path / "runs",
         write_video=False,
     )
-    daft.from_pydict({"junk": ["not a step"]}).write_parquet(
-        evaluation.path / "steps" / "rogue"
-    )
+    daft.from_pydict({"junk": ["not a step"]}).write_parquet(evaluation.path / "steps" / "rogue")
 
     reopened = read_evaluation(evaluation.path)
 

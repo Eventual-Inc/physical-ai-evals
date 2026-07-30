@@ -7,6 +7,7 @@ import re
 import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -422,6 +423,23 @@ def _set_mujoco_gl() -> None:
         os.environ.setdefault("PYOPENGL_PLATFORM", os.environ["MUJOCO_GL"])
 
 
+def _offscreen_environment(
+    bddl_path: str,
+    camera_height: int,
+    camera_width: int,
+):
+    """Construct MuJoCo only inside its spawned simulator worker."""
+    _set_mujoco_gl()
+    from libero.libero.envs import OffScreenRenderEnv
+
+    return OffScreenRenderEnv(
+        bddl_file_name=bddl_path,
+        camera_heights=camera_height,
+        camera_widths=camera_width,
+        camera_names=["agentview", "robot0_eye_in_hand"],
+    )
+
+
 def _local_path(path_or_uri: str) -> Path:
     path = Path(path_or_uri)
     if path.is_file():
@@ -443,7 +461,7 @@ def _local_path(path_or_uri: str) -> Path:
 
 @dataclass
 class LiberoRuntime:
-    """One cached LIBERO environment and init-state set per actor."""
+    """One cached scalar or subprocess-vector LIBERO environment per actor."""
 
     camera_height: int = 256
     camera_width: int = 256
@@ -453,6 +471,19 @@ class LiberoRuntime:
         self._environment_key: tuple[Any, ...] | None = None
         self._task: Any = None
         self._init_cache: dict[tuple[Any, ...], Any] = {}
+
+    def prepare(self) -> None:
+        """Select spawn before policy construction initializes CUDA."""
+        import multiprocessing
+
+        method = multiprocessing.get_start_method(allow_none=True)
+        if method is None:
+            multiprocessing.set_start_method("spawn")
+        elif method != "spawn":
+            raise RuntimeError(
+                "LIBERO subprocess environments require multiprocessing start method "
+                f"'spawn', but {method!r} is already active"
+            )
 
     def _replace_environment(self, key: tuple[Any, ...], bddl_path: Path, seed: int) -> None:
         if self._environment_key == key:
@@ -470,15 +501,13 @@ class LiberoRuntime:
         self._environment.seed(seed)
         self._environment_key = key
 
-    def _standard(self, suite: str, task_id: int, seed: int) -> tuple[Any, Any, Any]:
+    def _standard_assets(self, suite: str, task_id: int) -> tuple[Path, Any, Any]:
         _set_mujoco_gl()
         from libero.libero import benchmark, get_libero_path
 
         suite_object = benchmark.get_benchmark_dict()[suite]()
         task = suite_object.get_task(task_id)
         bddl = Path(get_libero_path("bddl_files")) / task.problem_folder / task.bddl_file
-        key = ("standard", suite, task_id, seed)
-        self._replace_environment(key, bddl, seed)
         cache_key = ("standard", suite, task_id)
         if cache_key not in self._init_cache:
             # These are trusted simulator states from the pinned LIBERO-Pro
@@ -493,26 +522,36 @@ class LiberoRuntime:
                 init_path,
                 weights_only=False,
             )
-        return self._environment, task, self._init_cache[cache_key]
+        return bddl, task, self._init_cache[cache_key]
 
-    def open(self, spec: Mapping[str, Any]) -> tuple[Any, str, Any, str | None]:
+    def _standard(self, suite: str, task_id: int, seed: int) -> tuple[Any, Any, Any]:
+        bddl, task, init_states = self._standard_assets(suite, task_id)
+        key = ("standard", suite, task_id, seed)
+        self._replace_environment(key, bddl, seed)
+        return self._environment, task, init_states
+
+    def _resolve(
+        self,
+        spec: Mapping[str, Any],
+    ) -> tuple[Path, str, Any, str | None, int]:
         benchmark = str(spec["benchmark"])
         seed = int(spec["seed"])
         init_state_id = int(spec["init_state_id"])
         if benchmark in {"libero", "libero_para"}:
             suite = "libero_goal" if benchmark == "libero_para" else str(spec["suite"])
             task_id = int(spec["task_id"])
-            environment, task, init_states = self._standard(suite, task_id, seed)
+            bddl, task, init_states = self._standard_assets(suite, task_id)
             instruction = (
                 str(spec["instruction"])
                 if spec.get("instruction") is not None
                 else str(getattr(task, "language", ""))
             )
             return (
-                environment,
+                bddl,
                 instruction,
                 init_states[init_state_id],
                 getattr(task, "name", None),
+                seed,
             )
 
         if benchmark != "libero_pro":
@@ -522,18 +561,60 @@ class LiberoRuntime:
         if init_uri is None:
             raise ValueError(f"LIBERO-Pro task {spec['task_key']!r} has no published init_path")
         init_path = _local_path(str(init_uri))
-        key = ("pro", str(bddl_path), seed)
-        self._replace_environment(key, bddl_path, seed)
         cache_key = ("pro", str(init_path))
         if cache_key not in self._init_cache:
             import torch
 
             self._init_cache[cache_key] = torch.load(init_path, weights_only=False)
         return (
-            self._environment,
+            bddl_path,
             str(spec["instruction"]),
             self._init_cache[cache_key][init_state_id],
             str(spec["task_name"]),
+            seed,
+        )
+
+    def open(self, spec: Mapping[str, Any]) -> tuple[Any, str, Any, str | None]:
+        bddl_path, instruction, init_state, task_name, seed = self._resolve(spec)
+        key = ("scalar", str(bddl_path), seed)
+        self._replace_environment(key, bddl_path, seed)
+        return self._environment, instruction, init_state, task_name
+
+    def open_batch(
+        self,
+        specs: Sequence[Mapping[str, Any]],
+    ) -> tuple[Any, list[str], list[Any], list[str | None]]:
+        """Open or reuse LIBERO's native CPU subprocess vector environment."""
+        resolved = [self._resolve(spec) for spec in specs]
+        environment_key = (
+            "vector",
+            tuple((str(bddl_path), seed) for bddl_path, _, _, _, seed in resolved),
+        )
+        if self._environment_key != environment_key:
+            self.close()
+            _set_mujoco_gl()
+            from libero.libero.envs import SubprocVectorEnv
+
+            self._environment = SubprocVectorEnv(
+                [
+                    partial(
+                        _offscreen_environment,
+                        str(bddl_path),
+                        self.camera_height,
+                        self.camera_width,
+                    )
+                    for bddl_path, _, _, _, _ in resolved
+                ]
+            )
+            self._environment_key = environment_key
+
+        seeds = [seed for _, _, _, _, seed in resolved]
+        self._environment.seed(seeds)
+        return (
+            self._environment,
+            [instruction for _, instruction, _, _, _ in resolved],
+            [init_state for _, _, init_state, _, _ in resolved],
+            [task_name for _, _, _, task_name, _ in resolved],
         )
 
     def close(self) -> None:

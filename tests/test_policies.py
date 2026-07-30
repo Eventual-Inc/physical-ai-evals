@@ -121,7 +121,7 @@ class _LeRobotPolicy:
 
     def select_action(self, batch):
         self.batches.append(batch)
-        return self.action
+        return self.action.repeat(batch["observation.images.image"].shape[0], 1)
 
 
 def _vla_jepa(fake):
@@ -162,10 +162,40 @@ def test_vla_jepa_batch_contract_and_negative_stride_images():
         "observation.state",
         "task",
     }
-    assert batch["task"] == "pick up the cup"
+    assert batch["task"] == ["pick up the cup"]
     assert isinstance(batch["observation.images.image"], torch.Tensor)
     assert batch["observation.images.image"].shape == (1, 3, 8, 8)
     assert batch["observation.state"].shape == (1, 8)
+
+
+def test_builtin_policy_adapters_accept_environment_batches():
+    torch = pytest.importorskip("torch")
+    openvla_policy = OpenVLAPolicy(
+        "fixture",
+        unnorm_key="libero_goal",
+        device="cpu",
+        center_crop=False,
+        _model=_OpenVLAModel(),
+        _processor=_Processor(),
+    )
+    openvla_policy.reset_batch(["first", "second"])
+    openvla_actions = openvla_policy.act_batch(
+        [
+            {"image": np.zeros((8, 8, 3), dtype=np.uint8)},
+            {"image": np.zeros((8, 8, 3), dtype=np.uint8)},
+        ]
+    )
+    assert openvla_actions.shape == (2, 7)
+
+    fake = _LeRobotPolicy()
+    vla_jepa_policy = _vla_jepa(fake)
+    vla_jepa_policy.reset_batch(["first", "second"])
+    vla_jepa_actions = vla_jepa_policy.act_batch([_observation(), _observation()])
+    assert vla_jepa_actions.shape == (2, 7)
+    assert fake.batches[0]["observation.images.image"].shape == (2, 3, 8, 8)
+    assert fake.batches[0]["observation.state"].shape == (2, 8)
+    assert fake.batches[0]["task"] == ["first", "second"]
+    assert isinstance(fake.batches[0]["observation.state"], torch.Tensor)
 
 
 def test_vla_jepa_requires_wrist_and_records_dependency_revisions():

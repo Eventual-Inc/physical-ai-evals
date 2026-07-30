@@ -6,6 +6,7 @@ BENCHMARK ?= libero
 TASKS ?=
 PERTURBATIONS ?=
 EPISODES ?= 10
+ENV_BATCH_SIZE ?= 8
 RUFF_VERSION ?= 0.15.21
 TY_VERSION ?= 0.0.56
 MKDOCS_VERSION ?= 1.6.1
@@ -72,13 +73,13 @@ clean: ## Remove build/test artifacts
 # in the physical_ai_evals package and its dependencies.
 
 smoke-openvla: ## CPU image smoke test for the OpenVLA Modal app
-	$(VENV)/bin/modal run -m physical_ai_evals.modal --policy openvla --benchmark $(BENCHMARK) --suite $(SUITE) $(if $(strip $(PERTURBATIONS)),--perturbations "$(PERTURBATIONS)") --smoke-test
+	$(VENV)/bin/modal run -m physical_ai_evals.modal --policy openvla --benchmark $(BENCHMARK) --suite $(SUITE) $(if $(strip $(PERTURBATIONS)),--perturbations "$(PERTURBATIONS)") --env-batch-size $(ENV_BATCH_SIZE) --smoke-test
 
 smoke-vla-jepa: ## CPU image smoke test for the VLA-JEPA Modal app
-	$(VENV)/bin/modal run -m physical_ai_evals.modal --policy vla_jepa --benchmark $(BENCHMARK) --suite $(SUITE) $(if $(strip $(PERTURBATIONS)),--perturbations "$(PERTURBATIONS)") --smoke-test
+	$(VENV)/bin/modal run -m physical_ai_evals.modal --policy vla_jepa --benchmark $(BENCHMARK) --suite $(SUITE) $(if $(strip $(PERTURBATIONS)),--perturbations "$(PERTURBATIONS)") --env-batch-size $(ENV_BATCH_SIZE) --smoke-test
 
 rollout-openvla: ## OpenVLA sweep on Modal (BENCHMARK=..., SUITE=..., EPISODES=...)
-	$(VENV)/bin/modal run -m physical_ai_evals.modal --policy openvla --benchmark $(BENCHMARK) --suite $(SUITE) $(if $(strip $(TASKS)),--tasks "$(TASKS)") $(if $(strip $(PERTURBATIONS)),--perturbations "$(PERTURBATIONS)") --episodes $(EPISODES)
+	$(VENV)/bin/modal run -m physical_ai_evals.modal --policy openvla --benchmark $(BENCHMARK) --suite $(SUITE) $(if $(strip $(TASKS)),--tasks "$(TASKS)") $(if $(strip $(PERTURBATIONS)),--perturbations "$(PERTURBATIONS)") --episodes $(EPISODES) --env-batch-size $(ENV_BATCH_SIZE)
 
 rollout-vla-jepa: ## VLA-JEPA sweep on Modal (BENCHMARK=..., SUITE=..., EPISODES=...)
-	$(VENV)/bin/modal run -m physical_ai_evals.modal --policy vla_jepa --benchmark $(BENCHMARK) --suite $(SUITE) $(if $(strip $(TASKS)),--tasks "$(TASKS)") $(if $(strip $(PERTURBATIONS)),--perturbations "$(PERTURBATIONS)") --episodes $(EPISODES)
+	$(VENV)/bin/modal run -m physical_ai_evals.modal --policy vla_jepa --benchmark $(BENCHMARK) --suite $(SUITE) $(if $(strip $(TASKS)),--tasks "$(TASKS)") $(if $(strip $(PERTURBATIONS)),--perturbations "$(PERTURBATIONS)") --episodes $(EPISODES) --env-batch-size $(ENV_BATCH_SIZE)

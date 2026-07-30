@@ -27,7 +27,7 @@ from physical_ai_evals.policy import (
 APP_DIR = "/workspace"
 MODEL_CACHE_DIR = "/models"
 OUTPUT_DIR = "/outputs"
-GPU_TYPE = "A100-40GB"
+GPU_TYPE = "A10G"
 MODAL_REGION = ["us-west"]
 CUDA_BASE = "nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04"
 PYTHON_VERSION = "3.12"
@@ -240,8 +240,9 @@ def _smoke_benchmark(
     benchmark_name: str,
     suite: str,
     perturbations: list[str] | None,
+    env_batch_size: int,
 ) -> dict[str, Any]:
-    """Construct, reset, and step one real MuJoCo environment."""
+    """Construct, reset, and step a real MuJoCo subprocess vector."""
     import numpy as np
     from daft import col, lit
 
@@ -255,41 +256,49 @@ def _smoke_benchmark(
 
     print(f"[smoke] selecting {benchmark_name} spec", flush=True)
     if benchmark_name == "libero":
-        benchmark = libero(suite, task_ids=[0], episodes=1)
+        benchmark = libero(suite, task_ids=[0], episodes=env_batch_size)
     elif benchmark_name == "libero_para":
         tasks = libero_para_tasks().where(col("task_id") == lit(0))
         if perturbations:
             tasks = tasks.where(col("perturbation").is_in(perturbations))
-        benchmark = libero_para(tasks=tasks.limit(1), episodes=1)
+        benchmark = libero_para(tasks=tasks.limit(1), episodes=env_batch_size)
     elif benchmark_name == "libero_pro":
         tasks = libero_pro_tasks().where(col("suite") == lit(suite))
         selected = perturbations or ["lan"]
         tasks = tasks.where(col("perturbation").is_in(selected))
-        benchmark = libero_pro(suite, tasks=tasks.limit(1), episodes=1)
+        benchmark = libero_pro(suite, tasks=tasks.limit(1), episodes=env_batch_size)
     else:
         raise ValueError("unknown benchmark")
 
-    spec = next(benchmark.specs.iter_rows())
-    print("[smoke] spec materialized; constructing runtime", flush=True)
+    specs = list(benchmark.specs.sort("init_state_id").iter_rows())
+    print(f"[smoke] {len(specs)} specs materialized; constructing runtime", flush=True)
     runtime = benchmark.runtime_factory(camera_height=64, camera_width=64)
     try:
-        print("[smoke] opening environment", flush=True)
-        environment, instruction, init_state, task_name = runtime.open(spec)
-        print("[smoke] resetting environment", flush=True)
+        prepare_runtime = getattr(runtime, "prepare", None)
+        if callable(prepare_runtime):
+            prepare_runtime()
+        print("[smoke] opening vector environment", flush=True)
+        environment, instructions, init_states, task_names = runtime.open_batch(specs)
+        print("[smoke] resetting vector environment", flush=True)
         environment.reset()
-        observation = environment.set_init_state(init_state)
-        print("[smoke] stepping environment", flush=True)
-        next_observation, reward, done, _ = environment.step(np.zeros(7, dtype=np.float32))
-        print("[smoke] environment step complete", flush=True)
+        observations = environment.set_init_state(init_states)
+        print("[smoke] stepping vector environment", flush=True)
+        next_observations, rewards, dones, _ = environment.step(
+            np.zeros((len(specs), 7), dtype=np.float32)
+        )
+        print("[smoke] vector environment step complete", flush=True)
+        observation = observations[0]
+        next_observation = next_observations[0]
         return {
             "benchmark": benchmark_name,
             "suite": suite,
-            "task_name": task_name,
-            "instruction": instruction,
+            "env_batch_size": len(specs),
+            "task_name": task_names[0],
+            "instruction": instructions[0],
             "primary_shape": list(observation["agentview_image"].shape),
             "next_primary_shape": list(next_observation["agentview_image"].shape),
-            "reward": float(reward),
-            "done": bool(done),
+            "rewards": np.asarray(rewards).tolist(),
+            "dones": np.asarray(dones).tolist(),
             "libero_pro_revision": LIBERO_PRO_CODE_REVISION,
         }
     finally:
@@ -302,6 +311,7 @@ def smoke_openvla(
     benchmark_name: str = "libero",
     suite: str = "libero_spatial",
     perturbations: list[str] | None = None,
+    env_batch_size: int = 2,
 ) -> dict[str, Any]:
     print("[smoke] OpenVLA container entered", flush=True)
     import numpy
@@ -313,7 +323,7 @@ def smoke_openvla(
     import transformers
 
     print("[smoke] Transformers imported", flush=True)
-    result = _smoke_benchmark(benchmark_name, suite, perturbations)
+    result = _smoke_benchmark(benchmark_name, suite, perturbations, env_batch_size)
     return {
         **result,
         "numpy": numpy.__version__,
@@ -327,6 +337,7 @@ def smoke_vla_jepa(
     benchmark_name: str = "libero",
     suite: str = "libero_spatial",
     perturbations: list[str] | None = None,
+    env_batch_size: int = 2,
 ) -> dict[str, Any]:
     import lerobot
     import numpy
@@ -334,7 +345,7 @@ def smoke_vla_jepa(
     import transformers
     from lerobot.policies.factory import get_policy_class
 
-    result = _smoke_benchmark(benchmark_name, suite, perturbations)
+    result = _smoke_benchmark(benchmark_name, suite, perturbations, env_batch_size)
     return {
         **result,
         "lerobot": getattr(lerobot, "__version__", LEROBOT_REVISION),
@@ -389,6 +400,8 @@ def _run(
     model_id: str,
     revision: str,
     write_video: bool,
+    env_batch_size: int,
+    profile: bool,
 ) -> dict[str, Any]:
     from physical_ai_evals import evaluate, openvla, vla_jepa
 
@@ -419,7 +432,7 @@ def _run(
 
     def checkpoint() -> None:
         # Modal does not preserve uncommitted Volume mutations after a crash.
-        # Commit after every completion row so resume loses at most one episode.
+        # Commit after every completed environment cohort.
         MODEL_CACHE.commit()
         OUTPUTS.commit()
 
@@ -430,6 +443,8 @@ def _run(
         out=output_root,
         write_video=write_video,
         checkpoint=checkpoint,
+        env_batch_size=env_batch_size,
+        profile=profile,
     )
     checkpoint()
     summary = evaluation.metrics().to_pydict()
@@ -448,6 +463,7 @@ def _run(
     **_function_options(
         OPENVLA_IMAGE,
         gpu=GPU_TYPE,
+        cpu=32,
         memory=65536,
     )
 )
@@ -461,6 +477,8 @@ def run_openvla(
     model_id: str = "",
     revision: str = "",
     write_video: bool = True,
+    env_batch_size: int = 8,
+    profile: bool = True,
 ) -> dict[str, Any]:
     return _run(
         "openvla",
@@ -473,6 +491,8 @@ def run_openvla(
         model_id,
         revision,
         write_video,
+        env_batch_size,
+        profile,
     )
 
 
@@ -480,6 +500,7 @@ def run_openvla(
     **_function_options(
         VLA_JEPA_IMAGE,
         gpu=GPU_TYPE,
+        cpu=32,
         memory=98304,
     )
 )
@@ -493,6 +514,8 @@ def run_vla_jepa(
     model_id: str = "",
     revision: str = "",
     write_video: bool = True,
+    env_batch_size: int = 8,
+    profile: bool = True,
 ) -> dict[str, Any]:
     return _run(
         "vla_jepa",
@@ -505,6 +528,8 @@ def run_vla_jepa(
         model_id,
         revision,
         write_video,
+        env_batch_size,
+        profile,
     )
 
 
@@ -520,6 +545,8 @@ def modal_main(
     model_id: str = "",
     revision: str = "",
     write_video: bool = True,
+    env_batch_size: int = 8,
+    profile: bool = True,
     download_only: bool = False,
     smoke_test: bool = False,
 ) -> None:
@@ -535,6 +562,7 @@ def modal_main(
                 benchmark_name=benchmark,
                 suite=suite,
                 perturbations=perturbation_list,
+                env_batch_size=env_batch_size,
             )
         )
         return
@@ -557,6 +585,8 @@ def modal_main(
         model_id=model_id,
         revision=revision,
         write_video=write_video,
+        env_batch_size=env_batch_size,
+        profile=profile,
     )
     print(
         f"{result['successes']}/{result['episodes']} succeeded "

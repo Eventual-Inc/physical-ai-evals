@@ -37,6 +37,8 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--revision", default="")
     run.add_argument("--device", choices=("cuda", "cpu", "mps"), default="cuda")
     run.add_argument("--out", type=Path, default=Path("data/evaluations"))
+    run.add_argument("--env-batch-size", type=int, default=1)
+    run.add_argument("--profile", action="store_true")
     run.add_argument("--no-video", action="store_true")
     run.add_argument("--dry-run", action="store_true")
     run.set_defaults(function=_evaluate)
@@ -56,9 +58,7 @@ def _benchmark(args: argparse.Namespace):
     from physical_ai_evals import libero, libero_para, libero_pro
 
     tasks = [item.strip() for item in args.tasks.split(",") if item.strip()] or None
-    perturbations = [
-        item.strip() for item in args.perturbations.split(",") if item.strip()
-    ] or None
+    perturbations = [item.strip() for item in args.perturbations.split(",") if item.strip()] or None
     if args.benchmark == "libero":
         return libero(
             args.suite,
@@ -119,6 +119,7 @@ def _evaluate(args: argparse.Namespace) -> int:
                 "suite": args.suite,
                 "episodes_per_task": args.episodes,
                 "seed": args.seed,
+                "env_batch_size": args.env_batch_size,
                 "out": str(args.out),
             }
         )
@@ -131,6 +132,8 @@ def _evaluate(args: argparse.Namespace) -> int:
         benchmark,
         out=args.out,
         write_video=not args.no_video,
+        env_batch_size=args.env_batch_size,
+        profile=args.profile,
     )
     metrics = evaluation.metrics().to_pydict()
     print(
@@ -144,9 +147,7 @@ def _read(args: argparse.Namespace) -> int:
     from physical_ai_evals import read_evaluation
 
     evaluation = read_evaluation(args.path)
-    groups = tuple(
-        item.strip() for item in args.group_by.split(",") if item.strip()
-    )
+    groups = tuple(item.strip() for item in args.group_by.split(",") if item.strip())
     evaluation.metrics(*groups).show()
     return 0
 

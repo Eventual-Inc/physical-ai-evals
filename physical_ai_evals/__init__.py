@@ -10,6 +10,7 @@ from physical_ai_evals.libero import (
     libero_pro_tasks,
 )
 from physical_ai_evals.policy import (
+    BatchPolicy,
     Observation,
     Policy,
     PolicySpec,
@@ -29,6 +30,7 @@ __version__ = "0.2.0"
 
 __all__ = [
     "Benchmark",
+    "BatchPolicy",
     "EPISODE_SCHEMA",
     "Evaluation",
     "Observation",
