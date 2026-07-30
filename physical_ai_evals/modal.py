@@ -456,6 +456,7 @@ def _run(
         "successes": int(summary["successes"][0] or 0),
         "success_rate": evaluation.success_rate(),
         "out_dir": str(evaluation.path),
+        "profile_path": str(evaluation.path / "profiles.jsonl") if profile else None,
     }
 
 
