@@ -10,7 +10,9 @@ ROOT = Path(__file__).parents[1]
 
 
 def _dry_run(target: str, **variables: str) -> list[str]:
-    command = ["make", "-n", target]
+    # Pytest runs under ``make test`` in CI. Prevent the nested make from
+    # inheriting directory banners that would become command tokens.
+    command = ["make", "--no-print-directory", "-n", target]
     command.extend(f"{key}={value}" for key, value in variables.items())
     result = subprocess.run(
         command,
