@@ -5,11 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-import daft
-from daft import DataFrame, col, lit
-from daft.functions import format, regexp_extract
-
-_SEGMENT = re.compile(r"[A-Za-z0-9_.-]+")
+from daft import DataFrame
 
 
 @dataclass(frozen=True)
@@ -40,8 +36,6 @@ ABC_130K_SMOKE = LeRobotSource(
     "lerobot/abc_130k_v3_smoke",
     "b342a0ff262195d49bae3eece6e3f40c6e1dbe15",
 )
-EGODEX_REPO_ID = "griffinlabs/EgoDex-LeRobot-v3.0"
-EGODEX_REVISION = "41d60b449629b2181ff5b735d31c2a2cf8b3cad8"
 
 
 def _current_revision(repo_id: str) -> str:
@@ -122,69 +116,11 @@ def lerobot_tasks(
     return reader.read_tasks(_uri(source, revision), io_config=io_config)
 
 
-def egodex(
-    task_name: str,
-    *,
-    split: str = "train",
-    repo_id: str = EGODEX_REPO_ID,
-    revision: str = EGODEX_REVISION,
-) -> LeRobotSource:
-    """Return the immutable nested LeRobot source for one EgoDex activity."""
-    if split not in {"train", "test"}:
-        raise ValueError("split must be 'train' or 'test'")
-    if _SEGMENT.fullmatch(task_name) is None:
-        raise ValueError("task_name must be one path-safe activity name")
-    return LeRobotSource(repo_id, revision, f"{split}/{task_name}")
-
-
-def egodex_catalog(
-    *,
-    split: str | None = None,
-    repo_id: str = EGODEX_REPO_ID,
-    revision: str = EGODEX_REVISION,
-    io_config=None,
-) -> DataFrame:
-    """Return a lazy manifest catalog of EgoDex's nested LeRobot datasets."""
-    if split is not None and split not in {"train", "test"}:
-        raise ValueError("split must be 'train', 'test', or None")
-    _check_revision(repo_id, revision)
-    root = f"hf://datasets/{repo_id}"
-    splits = [split] if split else ["train", "test"]
-    files = daft.from_glob_path(
-        [f"{root}/{name}/*/meta/info.json" for name in splits],
-        io_config=io_config,
-    )
-    relative = col("path").substr(len(root) + 1)
-    result = files.select(
-        lit("egodex").alias("dataset"),
-        lit(revision).alias("dataset_revision"),
-        regexp_extract(relative, r"(train|test)/([^/]+)/meta/info\.json", 1).alias(
-            "split"
-        ),
-        regexp_extract(relative, r"(train|test)/([^/]+)/meta/info\.json", 2).alias(
-            "task_name"
-        ),
-    ).with_column(
-        "dataset_uri",
-        format(
-            f"hf://datasets/{repo_id}/{{}}/{{}}",
-            col("split"),
-            col("task_name"),
-        ),
-    )
-    _check_revision(repo_id, revision)
-    return result
-
-
 __all__ = [
     "ABC_130K",
     "ABC_130K_SMOKE",
     "ALOHA",
-    "EGODEX_REPO_ID",
-    "EGODEX_REVISION",
     "LeRobotSource",
-    "egodex",
-    "egodex_catalog",
     "lerobot",
     "lerobot_episodes",
     "lerobot_tasks",
