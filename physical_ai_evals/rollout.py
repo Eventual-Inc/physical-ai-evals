@@ -250,6 +250,8 @@ def _run_episode(
                     "wrist_image": wrist,
                     "state": state,
                     "instruction": instruction,
+                    "episode_key": str(spec["episode_key"]),
+                    "seed": seed,
                 }
             )
             action = np.clip(np.asarray(action, np.float32), -1.0, 1.0)
@@ -438,6 +440,7 @@ class _ResourceSampler:
 def _policy_observation(
     observation: Mapping[str, Any],
     instruction: str,
+    spec: Mapping[str, Any],
 ) -> dict[str, Any]:
     return {
         "image": _derotate(observation["agentview_image"]),
@@ -448,6 +451,8 @@ def _policy_observation(
         ),
         "state": _proprio(observation),
         "instruction": instruction,
+        "episode_key": str(spec["episode_key"]),
+        "seed": int(spec["seed"]),
     }
 
 
@@ -497,6 +502,18 @@ def _run_batch(
     settle_seconds += time.perf_counter() - settle_started
 
     reset_batch(instructions)
+    initial_policy_observations = [
+        _policy_observation(observation, instruction, spec)
+        for observation, instruction, spec in zip(
+            observations,
+            instructions,
+            specs,
+            strict=True,
+        )
+    ]
+    prepare_batch = getattr(policy, "prepare_batch", None)
+    if callable(prepare_batch):
+        prepare_batch(initial_policy_observations)
     if profile:
         # Sample steady-state control, separately from environment construction
         # and initial-state settling where an idle inference GPU is expected.
@@ -524,8 +541,13 @@ def _run_batch(
                 break
 
             normalized = [
-                _policy_observation(observation, instruction)
-                for observation, instruction in zip(observations, instructions, strict=True)
+                _policy_observation(observation, instruction, spec)
+                for observation, instruction, spec in zip(
+                    observations,
+                    instructions,
+                    specs,
+                    strict=True,
+                )
             ]
             policy_started = time.perf_counter()
             actions = np.asarray(act_batch(normalized), dtype=np.float32)
@@ -601,6 +623,8 @@ def _run_batch(
         gpu = sampler.finish()
 
     elapsed = time.perf_counter() - started
+    policy_profile = getattr(policy, "batch_profile", None)
+    policy_metrics = dict(policy_profile()) if callable(policy_profile) else {}
     return results, {
         "batch_size": len(specs),
         "episode_keys": [str(spec["episode_key"]) for spec in specs],
@@ -616,6 +640,7 @@ def _run_batch(
         "policy_calls": policy_calls,
         "transitions": transitions,
         "transitions_per_second": transitions / elapsed if elapsed else None,
+        **policy_metrics,
         **gpu,
     }
 

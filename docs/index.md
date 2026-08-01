@@ -9,8 +9,8 @@
 
 The package is flat by design. `evaluate()` owns the stateful rollout boundary;
 Daft owns specifications, resume anti-joins, typed Parquet storage, lazy reads,
-and metrics. Modal supplies one orchestration surface with separate, pinned
-policy images.
+and metrics. Modal supplies pinned Torch policy images plus a separate H100/CUDA
+13.3 lane for persistent daft-cuTile VLA-JEPA inference.
 
 Start with the
 [repository README](https://github.com/Eventual-Inc/physical-ai-evals#readme),

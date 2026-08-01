@@ -47,7 +47,7 @@ make setup
 make check
 ```
 
-The two policy environments cannot be combined:
+The Torch policy environments cannot be combined:
 
 - OpenVLA is pinned to Torch 2.2, NumPy 1.x, and Transformers 4.40.1.
 - VLA-JEPA is pinned to a LeRobot commit whose stack uses Torch 2.7+,
@@ -57,6 +57,10 @@ Modal is the maintained installation path for both. For a Linux GPU machine,
 install the package and simulator extra in each isolated policy environment.
 Install VLA-JEPA's pinned LeRobot dependency as documented in
 [`pyproject.toml`](pyproject.toml).
+
+The optional `vla_jepa_cutile` adapter is a third, action-only runtime. It uses
+the persistent daft-cuTile engine and Qwen3-VL weights, but does not load
+V-JEPA2 or LeRobot during inference.
 
 ## All three benchmarks
 
@@ -156,7 +160,9 @@ version-noted rather than presented as an `eval-v1` reproduction fixture; see
 
 ## Modal
 
-One app exposes both policies while retaining two images:
+The standard app exposes both Torch policies while retaining two images. The
+daft-cuTile lane is a separate H100/CUDA 13.3 app pinned to an exact, clean
+daft-cuTile source revision:
 
 ```bash
 # One-time setup:
@@ -174,11 +180,19 @@ make rollout-openvla BENCHMARK=libero_pro SUITE=libero_spatial \
   EPISODES=5
 make rollout-vla-jepa BENCHMARK=libero_para SUITE=libero_goal \
   PERTURBATIONS=act EPISODES=5
+
+# Persistent B4 daft-cuTile inference. The source checkout must be exactly the
+# engine revision recorded by physical_ai_evals.cutile_vla_jepa.
+export DAFT_CUTILE_SOURCE_ROOT=/path/to/clean/daft-cutile
+make rollout-vla-jepa-cutile BENCHMARK=libero SUITE=libero_spatial \
+  TASKS=0 EPISODES=1 CUTILE_ENV_BATCH_SIZE=4
 ```
 
 Modal commits its output volume after each completed episode, so a container
 failure preserves all prior completions. Re-running the exact configuration
-resumes it.
+resumes it. The cuTile lane also prewarms each active-row graph before profiling,
+reuses all seven actions in every predicted chunk, and fails the cohort if native
+transfer counters violate the device-residency contract.
 
 ## Read LeRobot datasets with Daft
 

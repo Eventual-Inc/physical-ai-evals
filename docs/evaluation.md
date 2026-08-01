@@ -56,6 +56,13 @@ The latter two repository names are mutable inside the upstream checkpoint
 config, so the adapter replaces them with exact local snapshots before model
 construction.
 
+The `vla_jepa_cutile` policy is an action-only alternative. It loads the same
+policy checkpoint and pinned Qwen3-VL source into a persistent B4 daft-cuTile
+session, but does not construct V-JEPA2 or LeRobot. Each inference produces a
+seven-step action chunk, which the rollout consumes one simulator frame at a
+time. Explicit episode-keyed noise makes action chunks stable across cohort
+ordering and resume boundaries.
+
 ## Output schema
 
 `manifest.json` contains the schema version, immutable policy identity,
@@ -101,6 +108,9 @@ environment in each policy image. They accept all three benchmark families.
 GPU acceptance compares per-episode `success` and `length`, not bitwise action
 tensors. CUDA kernels are not forced into deterministic algorithms because that
 would make the validation path slower and less representative of production.
+The cuTile lane additionally fails closed on its native transfer counters: host
+camera/telemetry ingress and terminal action readback are allowed; intermediate
+host-visible tensors and extra synchronization are not.
 
 ## Historical trace
 
