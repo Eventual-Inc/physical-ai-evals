@@ -1,4 +1,4 @@
-"""Daft-native batch evaluation: specs -> rollout -> episodes + steps."""
+"""Daft-native batch evaluation: planned rollouts -> episodes + steps."""
 
 from __future__ import annotations
 
@@ -6,23 +6,20 @@ import hashlib
 import json
 import os
 import random
-import shutil
-import subprocess
 import tempfile
-import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, Protocol, TypedDict
 
 import daft
 import numpy as np
 from daft import DataFrame, DataType, col, lit
 from daft.functions import explode, unnest
 
-from physical_ai_evals.policy import Policy, PolicySpec
+from physical_ai_evals.policy import Observation, Policy, PolicySpec
 from physical_ai_evals.provenance import evaluation_manifest, write_manifest
 from physical_ai_evals.schema import (
     ACTION_DIM,
@@ -33,31 +30,52 @@ from physical_ai_evals.schema import (
 )
 
 
+class RuntimeObservation(TypedDict):
+    """Benchmark observation normalized for policies and evaluation traces."""
+
+    image: np.ndarray
+    wrist_image: np.ndarray | None
+    state: np.ndarray | None
+    eef_position: np.ndarray | None
+    gripper: float | None
+
+
 class Runtime(Protocol):
     """Stateful benchmark runtime owned by one rollout actor."""
 
-    def open(self, spec: Mapping[str, Any]) -> tuple[Any, str, Any, str | None]: ...
+    def open(self, rollout: Mapping[str, Any]) -> tuple[Any, str, Any, str | None]: ...
 
     def open_batch(
         self,
-        specs: Sequence[Mapping[str, Any]],
+        rollouts: Sequence[Mapping[str, Any]],
     ) -> tuple[Any, list[str], list[Any], list[str | None]]: ...
+
+    def normalize_observation(
+        self,
+        observation: Mapping[str, Any],
+    ) -> RuntimeObservation: ...
+
+    def normalize_observations(
+        self,
+        observations: Any,
+        count: int,
+    ) -> list[RuntimeObservation]: ...
 
     def close(self) -> None: ...
 
 
 @dataclass(frozen=True)
 class Benchmark:
-    """A lazy episode-spec frame plus the runtime factory that executes it."""
+    """A lazy rollout table plus the runtime factory that executes it."""
 
     name: str
     revision: str
-    specs: DataFrame
+    rollouts: DataFrame
     runtime_factory: Callable[..., Runtime]
     metadata: Mapping[str, Any] | None = None
 
 
-_SPEC_COLUMNS = (
+_ROLLOUT_COLUMNS = (
     "episode_index",
     "episode_key",
     "episode_id",
@@ -119,45 +137,6 @@ def _seed_process(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def _derotate(image: Any) -> np.ndarray:
-    return np.asarray(image)[::-1, ::-1]
-
-
-def _eef_position(observation: Mapping[str, Any]) -> np.ndarray | None:
-    value = observation.get("robot0_eef_pos")
-    if value is None:
-        return None
-    return np.asarray(value, np.float32).ravel()[:EEF_POS_DIM]
-
-
-def _gripper(observation: Mapping[str, Any]) -> float | None:
-    value = observation.get("robot0_gripper_qpos")
-    if value is None:
-        return None
-    qpos = np.asarray(value, np.float32).ravel()
-    return float(qpos[0] - qpos[1]) if qpos.size >= 2 else float(qpos[0])
-
-
-def _proprio(observation: Mapping[str, Any]) -> np.ndarray | None:
-    eef = observation.get("robot0_eef_pos")
-    gripper = observation.get("robot0_gripper_qpos")
-    if eef is None or gripper is None:
-        return None
-
-    from physical_ai_evals.geometry import quat_xyzw_to_axis_angle
-
-    parts = [np.asarray(eef, np.float32).ravel()[:3]]
-    quaternion = observation.get("robot0_eef_quat")
-    if quaternion is not None:
-        parts.append(quat_xyzw_to_axis_angle(np.asarray(quaternion).reshape(1, 4))[0])
-    gripper_array = np.asarray(gripper, np.float32).ravel()
-    parts.append(gripper_array[:2] if gripper_array.size >= 2 else gripper_array)
-    state = np.concatenate(parts).astype(np.float32)
-    if state.shape != (STATE_DIM,):
-        raise ValueError(f"LIBERO proprioception must have shape {(STATE_DIM,)}, got {state.shape}")
-    return state
-
-
 class _EpisodeVideos:
     """Stream cameras to atomic, deterministic episode video paths."""
 
@@ -208,15 +187,15 @@ class _EpisodeVideos:
 def _run_episode(
     runtime: Runtime,
     policy: Policy,
-    spec: Mapping[str, Any],
+    rollout: Mapping[str, Any],
     *,
     media_dir: str | None,
     num_steps_wait: int,
     frames_per_second: int,
 ) -> dict[str, Any]:
-    seed = int(spec["seed"])
+    seed = int(rollout["seed"])
     _seed_process(seed)
-    environment, instruction, init_state, task_name = runtime.open(spec)
+    environment, instruction, init_state, task_name = runtime.open(rollout)
     seed_environment = getattr(environment, "seed", None)
     if callable(seed_environment):
         seed_environment(seed)
@@ -228,40 +207,29 @@ def _run_episode(
         observation = environment.step(dummy_action)[0]
 
     policy.reset(instruction)
+    normalized = runtime.normalize_observation(observation)
     videos = (
-        _EpisodeVideos(media_dir, str(spec["episode_key"]), frames_per_second)
+        _EpisodeVideos(media_dir, str(rollout["episode_key"]), frames_per_second)
         if media_dir is not None
         else None
     )
     steps: list[dict[str, Any]] = []
     final_reward = 0.0
     try:
-        for frame_index in range(int(spec["max_steps"])):
-            primary = _derotate(observation["agentview_image"])
-            wrist = (
-                _derotate(observation["robot0_eye_in_hand_image"])
-                if "robot0_eye_in_hand_image" in observation
-                else None
-            )
-            state = _proprio(observation)
-            action = policy.act(
-                {
-                    "image": primary,
-                    "wrist_image": wrist,
-                    "state": state,
-                    "instruction": instruction,
-                }
-            )
+        for frame_index in range(int(rollout["max_steps"])):
+            policy_observation = _policy_observation(normalized, instruction)
+            action = policy.act(policy_observation)
             action = np.clip(np.asarray(action, np.float32), -1.0, 1.0)
             if action.shape != (ACTION_DIM,):
                 raise ValueError(
                     f"policy action must have shape {(ACTION_DIM,)}, got {action.shape}"
                 )
             if videos is not None:
-                videos.append("primary", primary)
-                videos.append("wrist", wrist)
+                videos.append("primary", normalized["image"])
+                videos.append("wrist", normalized["wrist_image"])
 
             next_observation, final_reward, done, _info = environment.step(action)
+            next_normalized = runtime.normalize_observation(next_observation)
             steps.append(
                 {
                     "frame_index": frame_index,
@@ -269,19 +237,19 @@ def _run_episode(
                     "action": action,
                     "reward": float(final_reward),
                     "next.done": bool(done),
-                    "observation.state": state,
-                    "observation.eef_position": _eef_position(next_observation),
-                    "observation.gripper": _gripper(next_observation),
+                    "observation.state": normalized["state"],
+                    "observation.eef_position": next_normalized["eef_position"],
+                    "observation.gripper": next_normalized["gripper"],
                 }
             )
-            observation = next_observation
+            normalized = next_normalized
             if done:
                 break
 
         success = bool(environment.check_success())
         primary_path, wrist_path = videos.finish() if videos is not None else (None, None)
         return {
-            "resolved_task_name": task_name or spec.get("task_name"),
+            "resolved_task_name": task_name or rollout.get("task_name"),
             "resolved_instruction": instruction,
             "success": success,
             "num_steps": len(steps),
@@ -297,156 +265,14 @@ def _run_episode(
         raise
 
 
-def _observation_rows(observations: Any, count: int) -> list[Mapping[str, Any]]:
-    """Normalize LIBERO's object array (or a dict-of-batches) to row dictionaries."""
-    if isinstance(observations, np.ndarray) and observations.dtype == object:
-        rows = observations.tolist()
-        if len(rows) == count and all(isinstance(row, Mapping) for row in rows):
-            return rows
-    if isinstance(observations, Sequence) and not isinstance(observations, (str, bytes, Mapping)):
-        rows = list(observations)
-        if len(rows) == count and all(isinstance(row, Mapping) for row in rows):
-            return cast(list[Mapping[str, Any]], rows)
-    if isinstance(observations, Mapping):
-
-        def take(value: Any, index: int) -> Any:
-            if isinstance(value, Mapping):
-                return {name: take(child, index) for name, child in value.items()}
-            array = np.asarray(value)
-            if array.ndim > 0 and array.shape[0] == count:
-                return array[index]
-            return value
-
-        return [
-            {name: take(value, index) for name, value in observations.items()}
-            for index in range(count)
-        ]
-    raise TypeError(
-        "vector environment observations must be an object array, row sequence, "
-        "or dictionary of batched arrays"
-    )
-
-
-class _ResourceSampler:
-    """Low-rate host and GPU sampling for rollout-level utilization evidence."""
-
-    def __init__(self, interval_seconds: float = 0.5) -> None:
-        self.interval_seconds = interval_seconds
-        self.samples: list[tuple[float, float, float, float]] = []
-        self._has_gpu = shutil.which("nvidia-smi") is not None
-        self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
-
-    def start(self) -> None:
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def _run(self) -> None:
-        cpu_seconds_fn: Callable[[], float]
-        try:
-            import psutil
-
-            root_process = psutil.Process()
-
-            def cpu_seconds() -> float:
-                total = 0.0
-                for process in (root_process, *root_process.children(recursive=True)):
-                    try:
-                        times = process.cpu_times()
-                    except psutil.Error:
-                        continue
-                    total += float(times.user + times.system)
-                return total
-
-            cpu_seconds_fn = cpu_seconds
-        except ImportError:
-            cpu_seconds_fn = partial(float, "nan")
-        previous_cpu_seconds = cpu_seconds_fn()
-        previous_wall = time.perf_counter()
-        while not self._stop.is_set():
-            utilization = memory = power = float("nan")
-            try:
-                if self._has_gpu:
-                    completed = subprocess.run(
-                        [
-                            "nvidia-smi",
-                            "--query-gpu=utilization.gpu,memory.used,power.draw",
-                            "--format=csv,noheader,nounits",
-                        ],
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                        timeout=2,
-                    )
-                    first = completed.stdout.splitlines()[0]
-                    utilization, memory, power = (
-                        float(value.strip()) for value in first.split(",")[:3]
-                    )
-            except (IndexError, OSError, subprocess.SubprocessError, ValueError):
-                pass
-            current_cpu_seconds = cpu_seconds_fn()
-            current_wall = time.perf_counter()
-            elapsed = current_wall - previous_wall
-            busy_cores = (
-                max(0.0, current_cpu_seconds - previous_cpu_seconds) / elapsed
-                if elapsed > 0.0
-                else float("nan")
-            )
-            previous_cpu_seconds = current_cpu_seconds
-            previous_wall = current_wall
-            self.samples.append((utilization, memory, power, busy_cores))
-            self._stop.wait(self.interval_seconds)
-
-    def finish(self) -> dict[str, Any]:
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=3)
-        if not self.samples:
-            return {
-                "resource_samples": 0,
-                "gpu_samples": 0,
-                "gpu_utilization_mean": None,
-                "gpu_utilization_p95": None,
-                "gpu_utilization_max": None,
-                "gpu_memory_mib_max": None,
-                "gpu_power_watts_mean": None,
-                "cpu_cores_busy_mean": None,
-                "cpu_cores_busy_p95": None,
-                "cpu_cores_busy_max": None,
-            }
-        values = np.asarray(self.samples, dtype=np.float64)
-
-        def aggregate(column: int, operation: Callable[[np.ndarray], float]) -> float | None:
-            samples = values[:, column]
-            samples = samples[~np.isnan(samples)]
-            return float(operation(samples)) if samples.size else None
-
-        return {
-            "resource_samples": len(self.samples),
-            "gpu_samples": int(np.count_nonzero(~np.isnan(values[:, 0]))),
-            "gpu_utilization_mean": aggregate(0, np.mean),
-            "gpu_utilization_p95": aggregate(0, partial(np.percentile, q=95)),
-            "gpu_utilization_max": aggregate(0, np.max),
-            "gpu_memory_mib_max": aggregate(1, np.max),
-            "gpu_power_watts_mean": aggregate(2, np.mean),
-            "cpu_cores_busy_mean": aggregate(3, np.mean),
-            "cpu_cores_busy_p95": aggregate(3, partial(np.percentile, q=95)),
-            "cpu_cores_busy_max": aggregate(3, np.max),
-        }
-
-
 def _policy_observation(
-    observation: Mapping[str, Any],
+    observation: RuntimeObservation,
     instruction: str,
-) -> dict[str, Any]:
+) -> Observation:
     return {
-        "image": _derotate(observation["agentview_image"]),
-        "wrist_image": (
-            _derotate(observation["robot0_eye_in_hand_image"])
-            if "robot0_eye_in_hand_image" in observation
-            else None
-        ),
-        "state": _proprio(observation),
+        "image": observation["image"],
+        "wrist_image": observation["wrist_image"],
+        "state": observation["state"],
         "instruction": instruction,
     }
 
@@ -454,27 +280,25 @@ def _policy_observation(
 def _run_batch(
     runtime: Runtime,
     policy: Policy,
-    specs: Sequence[Mapping[str, Any]],
+    rollouts: Sequence[Mapping[str, Any]],
     *,
     media_dir: str | None,
     num_steps_wait: int,
     frames_per_second: int,
-    profile: bool,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Run one fixed policy batch over LIBERO's CPU subprocess environments."""
-    if not specs:
+    if not rollouts:
         return [], {}
     reset_batch = getattr(policy, "reset_batch", None)
     act_batch = getattr(policy, "act_batch", None)
     if not callable(reset_batch) or not callable(act_batch):
         raise TypeError("policy does not implement reset_batch() and act_batch()")
 
-    seeds = {int(spec["seed"]) for spec in specs}
+    seeds = {int(rollout["seed"]) for rollout in rollouts}
     if len(seeds) != 1:
         raise ValueError("one rollout batch must use one process seed")
     _seed_process(next(iter(seeds)))
 
-    sampler = _ResourceSampler()
     started = time.perf_counter()
     reset_seconds = 0.0
     settle_seconds = 0.0
@@ -483,66 +307,68 @@ def _run_batch(
     policy_calls = 0
     transitions = 0
 
-    environment, instructions, init_states, task_names = runtime.open_batch(specs)
+    environment, instructions, init_states, task_names = runtime.open_batch(rollouts)
     reset_started = time.perf_counter()
     environment.reset()
-    observations = _observation_rows(environment.set_init_state(init_states), len(specs))
+    normalized = runtime.normalize_observations(
+        environment.set_init_state(init_states),
+        len(rollouts),
+    )
     reset_seconds += time.perf_counter() - reset_started
 
-    dummy = np.zeros((len(specs), int(getattr(policy, "action_dim", ACTION_DIM))), np.float32)
+    dummy = np.zeros(
+        (len(rollouts), int(getattr(policy, "action_dim", ACTION_DIM))),
+        np.float32,
+    )
     settle_started = time.perf_counter()
     for _ in range(num_steps_wait):
         stepped = environment.step(dummy)
-        observations = _observation_rows(stepped[0], len(specs))
+        normalized = runtime.normalize_observations(stepped[0], len(rollouts))
     settle_seconds += time.perf_counter() - settle_started
 
     reset_batch(instructions)
-    if profile:
-        # Sample steady-state control, separately from environment construction
-        # and initial-state settling where an idle inference GPU is expected.
-        sampler.start()
     videos = [
         (
-            _EpisodeVideos(media_dir, str(spec["episode_key"]), frames_per_second)
+            _EpisodeVideos(media_dir, str(rollout["episode_key"]), frames_per_second)
             if media_dir is not None
             else None
         )
-        for spec in specs
+        for rollout in rollouts
     ]
-    steps: list[list[dict[str, Any]]] = [[] for _ in specs]
-    final_rewards = [0.0 for _ in specs]
-    finished = [False for _ in specs]
+    steps: list[list[dict[str, Any]]] = [[] for _ in rollouts]
+    final_rewards = [0.0 for _ in rollouts]
+    finished = [False for _ in rollouts]
     try:
-        max_frames = max(int(spec["max_steps"]) for spec in specs)
+        max_frames = max(int(rollout["max_steps"]) for rollout in rollouts)
         for frame_index in range(max_frames):
             active = [
                 index
-                for index, spec in enumerate(specs)
-                if not finished[index] and frame_index < int(spec["max_steps"])
+                for index, rollout in enumerate(rollouts)
+                if not finished[index] and frame_index < int(rollout["max_steps"])
             ]
             if not active:
                 break
 
-            normalized = [
+            policy_observations = [
                 _policy_observation(observation, instruction)
-                for observation, instruction in zip(observations, instructions, strict=True)
+                for observation, instruction in zip(normalized, instructions, strict=True)
             ]
             policy_started = time.perf_counter()
-            actions = np.asarray(act_batch(normalized), dtype=np.float32)
+            actions = np.asarray(act_batch(policy_observations), dtype=np.float32)
             policy_seconds += time.perf_counter() - policy_started
             policy_calls += 1
-            if actions.shape != (len(specs), ACTION_DIM):
+            if actions.shape != (len(rollouts), ACTION_DIM):
                 raise ValueError(
                     "policy action batch must have shape "
-                    f"{(len(specs), ACTION_DIM)}, got {actions.shape}"
+                    f"{(len(rollouts), ACTION_DIM)}, got {actions.shape}"
                 )
             actions = np.clip(actions, -1.0, 1.0)
 
             for index in active:
                 video = videos[index]
                 if video is not None:
-                    video.append("primary", normalized[index]["image"])
-                    video.append("wrist", normalized[index]["wrist_image"])
+                    video.append("primary", policy_observations[index]["image"])
+                    video.append("wrist", policy_observations[index]["wrist_image"])
 
             environment_started = time.perf_counter()
             next_batch, rewards, dones, _infos = environment.step(
@@ -551,9 +377,8 @@ def _run_batch(
             )
             environment_seconds += time.perf_counter() - environment_started
             transitions += len(active)
-            next_rows = _observation_rows(next_batch, len(active))
+            next_normalized = runtime.normalize_observations(next_batch, len(active))
             for offset, index in enumerate(active):
-                next_observation = next_rows[offset]
                 reward = float(rewards[offset])
                 done = bool(dones[offset])
                 steps[index].append(
@@ -564,11 +389,11 @@ def _run_batch(
                         "reward": reward,
                         "next.done": done,
                         "observation.state": normalized[index]["state"],
-                        "observation.eef_position": _eef_position(next_observation),
-                        "observation.gripper": _gripper(next_observation),
+                        "observation.eef_position": next_normalized[offset]["eef_position"],
+                        "observation.gripper": next_normalized[offset]["gripper"],
                     }
                 )
-                observations[index] = next_observation
+                normalized[index] = next_normalized[offset]
                 final_rewards[index] = reward
                 finished[index] = done
 
@@ -576,12 +401,12 @@ def _run_batch(
         successes = [bool(value) for value in environment.check_success()]
         environment_seconds += time.perf_counter() - environment_started
         results: list[dict[str, Any]] = []
-        for index, spec in enumerate(specs):
+        for index, rollout in enumerate(rollouts):
             video = videos[index]
             primary_path, wrist_path = video.finish() if video is not None else (None, None)
             results.append(
                 {
-                    "resolved_task_name": task_names[index] or spec.get("task_name"),
+                    "resolved_task_name": task_names[index] or rollout.get("task_name"),
                     "resolved_instruction": instructions[index],
                     "success": successes[index],
                     "num_steps": len(steps[index]),
@@ -597,13 +422,11 @@ def _run_batch(
             if video is not None:
                 video.abort()
         raise
-    finally:
-        gpu = sampler.finish()
 
     elapsed = time.perf_counter() - started
     return results, {
-        "batch_size": len(specs),
-        "episode_keys": [str(spec["episode_key"]) for spec in specs],
+        "batch_size": len(rollouts),
+        "episode_keys": [str(rollout["episode_key"]) for rollout in rollouts],
         "wall_seconds": elapsed,
         "reset_seconds": reset_seconds,
         "settle_seconds": settle_seconds,
@@ -616,7 +439,6 @@ def _run_batch(
         "policy_calls": policy_calls,
         "transitions": transitions,
         "transitions_per_second": transitions / elapsed if elapsed else None,
-        **gpu,
     }
 
 
@@ -634,7 +456,6 @@ class RolloutActor:
         runtime_factory: Callable[..., Runtime],
         *,
         media_dir: str | None,
-        profile: bool,
     ) -> None:
         self.policy_spec = policy
         self.runtime = partial(
@@ -656,41 +477,45 @@ class RolloutActor:
                 f"{self.policy.control_mode!r} != {policy.control_mode!r}"
             )
         self.media_dir = media_dir
-        self.profile_enabled = profile
-        self._profiles: list[dict[str, Any]] = []
+        self._timings: list[dict[str, Any]] = []
 
     @daft.method.batch(batch_size=8, return_dtype=_ROLLOUT_DTYPE)
     def rollout(
         self,
-        specs: daft.Series | Sequence[Mapping[str, Any]],
+        rollouts: daft.Series | Sequence[Mapping[str, Any]],
     ) -> list[dict[str, Any]]:
-        rows = specs.to_pylist() if isinstance(specs, daft.Series) else list(specs)
+        rows = rollouts.to_pylist() if isinstance(rollouts, daft.Series) else list(rollouts)
         if self.policy is None:
             raise RuntimeError("rollout actor is closed")
         reset_batch = getattr(self.policy, "reset_batch", None)
         act_batch = getattr(self.policy, "act_batch", None)
         if len(rows) > 1 and (not callable(reset_batch) or not callable(act_batch)):
             results = []
-            for spec in rows:
+            for rollout in rows:
                 started = time.perf_counter()
                 result = _run_episode(
                     self.runtime,
                     self.policy,
-                    spec,
+                    rollout,
                     media_dir=self.media_dir,
                     num_steps_wait=self.policy_spec.num_steps_wait,
                     frames_per_second=self.policy_spec.frames_per_second,
                 )
                 results.append(result)
-                if self.profile_enabled:
-                    self._profiles.append(
-                        {
-                            "batch_size": 1,
-                            "episode_keys": [str(spec["episode_key"])],
-                            "wall_seconds": time.perf_counter() - started,
-                            "batch_fallback": "policy_has_no_batch_api",
-                        }
-                    )
+                elapsed = time.perf_counter() - started
+                transitions = int(result["num_steps"])
+                self._timings.append(
+                    {
+                        "batch_size": 1,
+                        "episode_keys": [str(rollout["episode_key"])],
+                        "wall_seconds": elapsed,
+                        "transitions": transitions,
+                        "transitions_per_second": (
+                            transitions / elapsed if elapsed else None
+                        ),
+                        "batch_fallback": "policy_has_no_batch_api",
+                    }
+                )
             return results
         if not callable(reset_batch) or not callable(act_batch):
             started = time.perf_counter()
@@ -702,35 +527,36 @@ class RolloutActor:
                 num_steps_wait=self.policy_spec.num_steps_wait,
                 frames_per_second=self.policy_spec.frames_per_second,
             )
-            if self.profile_enabled:
-                self._profiles.append(
-                    {
-                        "batch_size": 1,
-                        "episode_keys": [str(rows[0]["episode_key"])],
-                        "wall_seconds": time.perf_counter() - started,
-                        "batch_fallback": "policy_has_no_batch_api",
-                    }
-                )
+            elapsed = time.perf_counter() - started
+            transitions = int(result["num_steps"])
+            self._timings.append(
+                {
+                    "batch_size": 1,
+                    "episode_keys": [str(rows[0]["episode_key"])],
+                    "wall_seconds": elapsed,
+                    "transitions": transitions,
+                    "transitions_per_second": transitions / elapsed if elapsed else None,
+                    "batch_fallback": "policy_has_no_batch_api",
+                }
+            )
             return [result]
 
-        results, batch_profile = _run_batch(
+        results, batch_timing = _run_batch(
             self.runtime,
             self.policy,
             rows,
             media_dir=self.media_dir,
             num_steps_wait=self.policy_spec.num_steps_wait,
             frames_per_second=self.policy_spec.frames_per_second,
-            profile=self.profile_enabled,
         )
-        if self.profile_enabled:
-            self._profiles.append(batch_profile)
+        self._timings.append(batch_timing)
         return results
 
     @daft.method(return_dtype=DataType.python())
-    def take_profiles(self) -> list[dict[str, Any]]:
-        profiles = self._profiles
-        self._profiles = []
-        return profiles
+    def take_timings(self) -> list[dict[str, Any]]:
+        timings = self._timings
+        self._timings = []
+        return timings
 
     @daft.method(return_dtype=DataType.bool())
     def close(self) -> bool:
@@ -844,13 +670,13 @@ def _completed_episode_keys(root: Path) -> DataFrame:
     )
 
 
-def _canonical_specs(benchmark: Benchmark) -> tuple[DataFrame, str]:
-    missing = sorted(set(_SPEC_COLUMNS) - set(benchmark.specs.column_names))
+def _canonical_rollouts(benchmark: Benchmark) -> tuple[DataFrame, str]:
+    missing = sorted(set(_ROLLOUT_COLUMNS) - set(benchmark.rollouts.column_names))
     # episode_index is assigned only after a stable sort/materialization.
     if missing != ["episode_index"]:
-        raise ValueError(f"benchmark specs are missing required columns: {missing!r}")
-    data = benchmark.specs.select(
-        *(name for name in _SPEC_COLUMNS if name != "episode_index")
+        raise ValueError(f"benchmark rollouts are missing required columns: {missing!r}")
+    data = benchmark.rollouts.select(
+        *(name for name in _ROLLOUT_COLUMNS if name != "episode_index")
     ).to_pydict()
     count = len(data["episode_key"])
     if count == 0:
@@ -858,7 +684,7 @@ def _canonical_specs(benchmark: Benchmark) -> tuple[DataFrame, str]:
     required = ("episode_key", "episode_id", "suite", "task_key", "init_state_id", "seed")
     for name in required:
         if any(value is None for value in data[name]):
-            raise ValueError(f"benchmark specs contain null {name!r} values")
+            raise ValueError(f"benchmark rollouts contain null {name!r} values")
     order = sorted(
         range(count),
         key=lambda index: (
@@ -870,14 +696,14 @@ def _canonical_specs(benchmark: Benchmark) -> tuple[DataFrame, str]:
     )
     data = {name: [values[index] for index in order] for name, values in data.items()}
     if len(set(data["episode_key"])) != count:
-        raise ValueError("benchmark specs contain duplicate episode keys")
+        raise ValueError("benchmark rollouts contain duplicate episode keys")
     if len(set(data["episode_id"])) != count:
-        raise ValueError("benchmark specs contain duplicate episode IDs")
+        raise ValueError("benchmark rollouts contain duplicate episode IDs")
     data["episode_index"] = list(range(count))
-    ordered: dict[str, Any] = {name: data[name] for name in _SPEC_COLUMNS}
+    ordered: dict[str, Any] = {name: data[name] for name in _ROLLOUT_COLUMNS}
     canonical = json.dumps(
         [
-            {name: ordered[name][index] for name in _SPEC_COLUMNS}
+            {name: ordered[name][index] for name in _ROLLOUT_COLUMNS}
             for index in range(count)
         ],
         sort_keys=True,
@@ -945,20 +771,23 @@ def _pending_batches(
     pending: DataFrame,
     batch_size: int,
 ) -> list[list[dict[str, Any]]]:
-    specs = [
-        {name: row[name] for name in _SPEC_COLUMNS}
+    rollouts = [
+        {name: row[name] for name in _ROLLOUT_COLUMNS}
         for row in pending.sort("episode_index").iter_rows()
     ]
-    return [specs[offset : offset + batch_size] for offset in range(0, len(specs), batch_size)]
+    return [
+        rollouts[offset : offset + batch_size]
+        for offset in range(0, len(rollouts), batch_size)
+    ]
 
 
-def _append_profiles(path: Path, profiles: Sequence[Mapping[str, Any]]) -> None:
-    if not profiles:
+def _append_timings(path: Path, timings: Sequence[Mapping[str, Any]]) -> None:
+    if not timings:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as stream:
-        for profile in profiles:
-            stream.write(json.dumps(dict(profile), sort_keys=True, allow_nan=False))
+        for timing in timings:
+            stream.write(json.dumps(dict(timing), sort_keys=True, allow_nan=False))
             stream.write("\n")
         stream.flush()
         os.fsync(stream.fileno())
@@ -972,17 +801,16 @@ def evaluate(
     write_video: bool = True,
     checkpoint: Callable[[], None] | None = None,
     env_batch_size: int = 1,
-    profile: bool = False,
 ) -> Evaluation:
-    """Run pending specs and return lazy episode/step frames.
+    """Run pending rollouts and return lazy episode/step frames.
 
     The policy and simulator are stateful and stay in this Python process. Daft
-    owns spec planning, resume anti-joins, schema casts, partition writes, reads,
-    and metrics. A crash loses at most the active environment cohort.
+    owns rollout planning, resume anti-joins, schema casts, partition writes,
+    reads, and metrics. A crash loses at most the active environment cohort.
     """
     if env_batch_size < 1:
         raise ValueError("env_batch_size must be positive")
-    specs, specs_hash = _canonical_specs(benchmark)
+    rollouts, rollouts_hash = _canonical_rollouts(benchmark)
     evaluation_id, config = evaluation_manifest(
         policy={
             "id": policy.policy_id,
@@ -1000,17 +828,16 @@ def evaluate(
             "metadata": dict(benchmark.metadata or {}),
             "execution": {
                 "env_batch_size": env_batch_size,
-                "profile": profile,
                 "write_video": write_video,
             },
         },
-        specs_sha256=specs_hash,
+        rollouts_sha256=rollouts_hash,
     )
     root = Path(out) / evaluation_id
     write_manifest(root, evaluation_id, config)
 
     completed = _completed_episode_keys(root)
-    pending = specs.join(completed, on="episode_key", how="anti").collect()
+    pending = rollouts.join(completed, on="episode_key", how="anti").collect()
     if pending.count_rows() == 0:
         return read_evaluation(root)
     media_dir = str(root / "videos") if write_video else None
@@ -1018,20 +845,19 @@ def evaluate(
         policy,
         benchmark.runtime_factory,
         media_dir=media_dir,
-        profile=profile,
     )
     try:
         for batch in _pending_batches(pending, env_batch_size):
             results = actor.rollout(batch)
-            for spec, result in zip(batch, results, strict=True):
-                rollout = daft.from_pylist([{**spec, **result}])
-                steps = _step_frame(rollout)
-                episodes = _episode_frame(rollout)
+            for planned_rollout, result in zip(batch, results, strict=True):
+                completed_rollout = daft.from_pylist([{**planned_rollout, **result}])
+                steps = _step_frame(completed_rollout)
+                episodes = _episode_frame(completed_rollout)
                 # The episode row is the completion marker. If a process dies
                 # after steps land, resume overwrites the incomplete partition.
                 _write_partition(steps, root / "steps")
                 _write_partition(episodes, root / "episodes")
-            _append_profiles(root / "profiles.jsonl", actor.take_profiles())
+            _append_timings(root / "timings.jsonl", actor.take_timings())
             if checkpoint is not None:
                 checkpoint()
     finally:

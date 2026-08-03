@@ -100,11 +100,11 @@ def test_evaluate_is_deterministic_lazy_and_resumable(tmp_path):
         ("max_steps", 21),
     ],
 )
-def test_rollout_affecting_specs_change_evaluation_identity(tmp_path, field, value):
+def test_rollout_affecting_fields_change_evaluation_identity(tmp_path, field, value):
     benchmark = mock_benchmark(task_ids=(0,), episodes=1)
     changed = replace(
         benchmark,
-        specs=benchmark.specs.with_column(field, lit(value)),
+        rollouts=benchmark.rollouts.with_column(field, lit(value)),
     )
 
     original = evaluate(
@@ -144,7 +144,7 @@ def test_video_mode_changes_evaluation_identity(tmp_path):
     assert with_video.episodes.to_pydict()["primary_video_path"][0] is not None
 
 
-def test_batched_actor_matches_scalar_signature_and_captures_profile(tmp_path):
+def test_batched_actor_matches_scalar_signature_and_records_timings(tmp_path):
     counter = tmp_path / "policy-loads.txt"
     evaluation = evaluate(
         mock_policy(counter_path=counter, batched=True),
@@ -152,33 +152,33 @@ def test_batched_actor_matches_scalar_signature_and_captures_profile(tmp_path):
         out=tmp_path / "runs",
         write_video=False,
         env_batch_size=2,
-        profile=True,
     )
 
     assert _signatures(evaluation) == (EPISODE_SIGNATURE, STEP_SIGNATURE)
     assert counter.read_text(encoding="utf-8").splitlines() == ["initialized"]
-    profiles = [
+    timings = [
         json.loads(line)
-        for line in (evaluation.path / "profiles.jsonl").read_text(encoding="utf-8").splitlines()
+        for line in (evaluation.path / "timings.jsonl").read_text(encoding="utf-8").splitlines()
     ]
-    assert len(profiles) == 3
-    assert {profile["batch_size"] for profile in profiles} == {2}
-    assert all(profile["transitions"] > 0 for profile in profiles)
-    assert all("cpu_cores_busy_mean" in profile for profile in profiles)
+    assert len(timings) == 3
+    assert {timing["batch_size"] for timing in timings} == {2}
+    assert all(timing["transitions"] > 0 for timing in timings)
+    assert all(timing["policy_seconds"] >= 0.0 for timing in timings)
+    assert all(timing["environment_seconds"] >= 0.0 for timing in timings)
+    assert all("gpu_utilization_mean" not in timing for timing in timings)
 
 
 def test_rollout_actor_is_a_real_daft_batch_expression():
     benchmark = mock_benchmark(task_ids=(0,), episodes=2)
-    specs, _ = rollout._canonical_specs(benchmark)
+    rollouts, _ = rollout._canonical_rollouts(benchmark)
     actor = rollout.RolloutActor(
         mock_policy(batched=True),
         benchmark.runtime_factory,
         media_dir=None,
-        profile=False,
     )
-    result = specs.with_column(
+    result = rollouts.with_column(
         "_rollout",
-        actor.rollout(to_struct(*(col(name) for name in rollout._SPEC_COLUMNS))),
+        actor.rollout(to_struct(*(col(name) for name in rollout._ROLLOUT_COLUMNS))),
     ).collect()
 
     values = result.to_pydict()["_rollout"]

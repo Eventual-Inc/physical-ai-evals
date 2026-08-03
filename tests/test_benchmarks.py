@@ -8,6 +8,7 @@ from types import ModuleType, SimpleNamespace
 
 import daft
 import numpy as np
+import pytest
 import torch
 from daft.functions import format
 
@@ -69,8 +70,8 @@ def test_standard_libero_builds_lazy_executable_episode_grid(tmp_path, monkeypat
         seed=11,
     )
 
-    assert isinstance(benchmark.specs, daft.DataFrame)
-    data = benchmark.specs.sort(["task_id", "init_state_id"]).to_pydict()
+    assert isinstance(benchmark.rollouts, daft.DataFrame)
+    data = benchmark.rollouts.sort(["task_id", "init_state_id"]).to_pydict()
     assert data["task_id"] == [1, 1, 3, 3]
     assert data["init_state_id"] == [0, 1, 0, 1]
     assert data["seed"] == [11] * 4
@@ -125,6 +126,53 @@ def test_runtime_consumes_resolved_asset_references(tmp_path, monkeypatch):
     np.testing.assert_array_equal(state, expected)
 
 
+def test_runtime_normalizes_libero_observations():
+    runtime = LiberoRuntime()
+    image = np.arange(18, dtype=np.uint8).reshape(2, 3, 3)
+    wrist = image + 20
+
+    observation = runtime.normalize_observation(
+        {
+            "agentview_image": image,
+            "robot0_eye_in_hand_image": wrist,
+            "robot0_eef_pos": [0.1, 0.2, 0.3],
+            "robot0_eef_quat": [0.0, 0.0, 0.0, 1.0],
+            "robot0_gripper_qpos": [0.04, -0.04],
+        }
+    )
+
+    np.testing.assert_array_equal(observation["image"], image[::-1, ::-1])
+    np.testing.assert_array_equal(observation["wrist_image"], wrist[::-1, ::-1])
+    np.testing.assert_allclose(
+        observation["state"],
+        [0.1, 0.2, 0.3, 0.0, 0.0, 0.0, 0.04, -0.04],
+    )
+    np.testing.assert_allclose(observation["eef_position"], [0.1, 0.2, 0.3])
+    assert observation["gripper"] == pytest.approx(0.08)
+
+
+def test_runtime_normalizes_vector_observation_rows():
+    runtime = LiberoRuntime()
+    images = np.arange(36, dtype=np.uint8).reshape(2, 2, 3, 3)
+
+    observations = runtime.normalize_observations(
+        {
+            "agentview_image": images,
+            "robot0_eef_pos": np.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]),
+            "robot0_eef_quat": np.array(
+                [[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]]
+            ),
+            "robot0_gripper_qpos": np.array([[0.04, -0.04], [0.03, -0.03]]),
+        },
+        count=2,
+    )
+
+    assert len(observations) == 2
+    np.testing.assert_array_equal(observations[1]["image"], images[1, ::-1, ::-1])
+    np.testing.assert_allclose(observations[1]["eef_position"], [0.4, 0.5, 0.6])
+    assert observations[1]["gripper"] == pytest.approx(0.06)
+
+
 def test_para_plan_maps_eval_ids_to_sorted_goal_environments(tmp_path, monkeypatch):
     paths = [
         "bddl_files/act_lexical_addition_eval3_ver7.bddl",
@@ -143,7 +191,7 @@ def test_para_plan_maps_eval_ids_to_sorted_goal_environments(tmp_path, monkeypat
     _local_hf_uris(monkeypatch, tmp_path)
 
     benchmark = libero_para(task_ids=[3, 8], episodes=2)
-    data = benchmark.specs.sort(["task_id", "init_state_id"]).to_pydict()
+    data = benchmark.rollouts.sort(["task_id", "init_state_id"]).to_pydict()
 
     assert data["benchmark"] == ["libero_para"] * 4
     assert data["suite"] == ["libero_goal"] * 4
@@ -194,7 +242,7 @@ def test_pro_plan_pairs_variant_then_suite_initial_states(tmp_path, monkeypatch)
     _local_hf_uris(monkeypatch, tmp_path)
 
     spatial = libero_pro("libero_spatial", episodes=3, max_steps=17)
-    spatial_data = spatial.specs.sort("init_state_id").to_pydict()
+    spatial_data = spatial.rollouts.sort("init_state_id").to_pydict()
     assert spatial_data["suite_variant"] == ["libero_spatial_lan"] * 3
     assert spatial_data["perturbation"] == ["lan"] * 3
     assert spatial_data["init_state_id"] == [0, 1, 2]
@@ -203,7 +251,7 @@ def test_pro_plan_pairs_variant_then_suite_initial_states(tmp_path, monkeypatch)
     assert spatial_data["init_path"] == [str(tmp_path / paths[3])] * 3
 
     goal = libero_pro("libero_goal", episodes=1)
-    goal_data = goal.specs.to_pydict()
+    goal_data = goal.rollouts.to_pydict()
     assert goal_data["suite_variant"] == ["01_visual_noise_glare"]
     assert goal_data["perturbation"] == ["01_visual_noise_glare"]
     assert goal_data["init_path"] == [str(tmp_path / paths[2])]

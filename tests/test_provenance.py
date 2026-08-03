@@ -13,17 +13,17 @@ def test_evaluation_manifest_is_canonical_and_config_sensitive():
     first_id, first = provenance.evaluation_manifest(
         policy={"id": "policy", "revision": "abc"},
         benchmark={"name": "mock", "revision": "def"},
-        specs_sha256="specs",
+        rollouts_sha256="rollouts",
     )
     second_id, second = provenance.evaluation_manifest(
         policy={"revision": "abc", "id": "policy"},
         benchmark={"revision": "def", "name": "mock"},
-        specs_sha256="specs",
+        rollouts_sha256="rollouts",
     )
     changed_id, _ = provenance.evaluation_manifest(
         policy={"id": "policy", "revision": "changed"},
         benchmark={"name": "mock", "revision": "def"},
-        specs_sha256="specs",
+        rollouts_sha256="rollouts",
     )
 
     assert first_id == second_id

@@ -10,7 +10,7 @@ from typing import Any
 import daft
 import numpy as np
 
-from physical_ai_evals.libero import _episode_specs
+from physical_ai_evals.libero import LiberoRuntime, _rollouts
 from physical_ai_evals.policy import Observation, PolicySpec
 from physical_ai_evals.rollout import Benchmark
 from physical_ai_evals.schema import ACTION_DIM
@@ -104,7 +104,7 @@ class MockVectorEnvironment:
 
 
 @dataclass
-class MockRuntime:
+class MockRuntime(LiberoRuntime):
     camera_height: int = 16
     camera_width: int = 16
 
@@ -113,9 +113,9 @@ class MockRuntime:
         self.vector_environment: MockVectorEnvironment | None = None
         self.key: tuple[int, int] | None = None
 
-    def open(self, spec: Mapping[str, Any]):
-        task_id = int(spec["task_id"])
-        seed = int(spec["seed"])
+    def open(self, rollout: Mapping[str, Any]):
+        task_id = int(rollout["task_id"])
+        seed = int(rollout["seed"])
         key = (task_id, seed)
         if self.key != key:
             self.close()
@@ -124,28 +124,31 @@ class MockRuntime:
         return (
             self.environment,
             f"perform mock task {task_id}",
-            np.array([spec["init_state_id"]], dtype=np.float32),
+            np.array([rollout["init_state_id"]], dtype=np.float32),
             f"mock_task_{task_id}",
         )
 
-    def open_batch(self, specs: Sequence[Mapping[str, Any]]):
+    def open_batch(self, rollouts: Sequence[Mapping[str, Any]]):
         self.close()
         environments = [
             MockEnvironment(
-                int(spec["task_id"]),
-                int(spec["seed"]),
+                int(rollout["task_id"]),
+                int(rollout["seed"]),
                 self.camera_height,
                 self.camera_width,
             )
-            for spec in specs
+            for rollout in rollouts
         ]
         self.vector_environment = MockVectorEnvironment(environments)
-        self.vector_environment.seed([int(spec["seed"]) for spec in specs])
+        self.vector_environment.seed([int(rollout["seed"]) for rollout in rollouts])
         return (
             self.vector_environment,
-            [f"perform mock task {int(spec['task_id'])}" for spec in specs],
-            [np.array([spec["init_state_id"]], dtype=np.float32) for spec in specs],
-            [f"mock_task_{int(spec['task_id'])}" for spec in specs],
+            [f"perform mock task {int(rollout['task_id'])}" for rollout in rollouts],
+            [
+                np.array([rollout["init_state_id"]], dtype=np.float32)
+                for rollout in rollouts
+            ],
+            [f"mock_task_{int(rollout['task_id'])}" for rollout in rollouts],
         )
 
     def close(self) -> None:
@@ -261,7 +264,7 @@ def mock_benchmark(
     return Benchmark(
         name="mock",
         revision=MOCK_REVISION,
-        specs=_episode_specs(
+        rollouts=_rollouts(
             tasks,
             benchmark="mock",
             revision=MOCK_REVISION,

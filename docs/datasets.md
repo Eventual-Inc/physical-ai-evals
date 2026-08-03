@@ -50,7 +50,7 @@ Each LIBERO constructor exposes its lazy executable episode plan directly:
 import daft
 from physical_ai_evals import libero_para, libero_pro
 
-para = libero_para(task_ids=[3], episodes=1).specs
+para = libero_para(task_ids=[3], episodes=1).rollouts
 para.groupby("perturbation").agg(
     daft.col("bddl_path").count().alias("variants")
 ).show()
@@ -59,7 +59,7 @@ pro = libero_pro(
     "libero_spatial",
     perturbations=["lan"],
     episodes=1,
-).specs
+).rollouts
 pro.select("task_key", "bddl_path", "init_path").show()
 ```
 

@@ -73,13 +73,13 @@ def evaluation_manifest(
     *,
     policy: Mapping[str, Any],
     benchmark: Mapping[str, Any],
-    specs_sha256: str,
+    rollouts_sha256: str,
 ) -> tuple[str, dict[str, Any]]:
     """Return the deterministic evaluation ID and its complete manifest config."""
     config = {
         "schema_version": SCHEMA_VERSION,
         "policy": dict(policy),
-        "benchmark": {**dict(benchmark), "specs_sha256": specs_sha256},
+        "benchmark": {**dict(benchmark), "rollouts_sha256": rollouts_sha256},
         "implementation_sha256": implementation_fingerprint(),
         "runtime": runtime_provenance(
             ("daft", "numpy", "torch", "libero", "transformers", "lerobot")
