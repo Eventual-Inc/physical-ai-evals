@@ -70,7 +70,7 @@ build: ## Build sdist + wheel
 clean: ## Remove build/test artifacts
 	rm -rf build dist site *.egg-info .pytest_cache .ruff_cache
 
-# --- Modal (one-time: `modal token new` + `modal secret create hf-token HF_TOKEN=...`) ---
+# --- Modal (one-time: `modal token new` + `modal secret create HF_TOKEN HF_TOKEN=...`) ---
 # The venv's modal, not a global CLI: `modal run` imports the app file locally, which pulls
 # in the physical_ai_evals package and its dependencies.
 

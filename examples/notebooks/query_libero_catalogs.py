@@ -10,7 +10,7 @@ from physical_ai_evals import libero_para, libero_pro
 # ## LIBERO-Para variants
 
 # %%
-para = libero_para(episodes=1).specs
+para = libero_para(episodes=1).rollouts
 para.groupby("perturbation").agg(daft.col("bddl_path").count().alias("tasks")).sort(
     "perturbation"
 ).show()
@@ -24,7 +24,7 @@ para.where((daft.col("task_id") == 3) & (daft.col("perturbation") == "obj")).sel
 # ## LIBERO-Pro perturbations
 
 # %%
-pro = libero_pro("libero_spatial", episodes=1).specs
+pro = libero_pro("libero_spatial", episodes=1).rollouts
 pro.groupby("perturbation").agg(daft.col("bddl_path").count().alias("tasks")).sort(
     "perturbation"
 ).show()

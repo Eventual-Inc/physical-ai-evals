@@ -42,7 +42,7 @@ LEROBOT_SPEC = f"lerobot[vla_jepa] @ git+https://github.com/huggingface/lerobot@
 app = modal.App("physical-ai-evals")
 MODEL_CACHE = modal.Volume.from_name("daft-model-cache", create_if_missing=True)
 OUTPUTS = modal.Volume.from_name("daft-model-outputs", create_if_missing=True)
-HF_SECRET = modal.Secret.from_name("hf-token")
+HF_SECRET = modal.Secret.from_name("HF_TOKEN")
 VOLUMES = {MODEL_CACHE_DIR: MODEL_CACHE, OUTPUT_DIR: OUTPUTS}
 
 _APT = (
@@ -256,7 +256,7 @@ def _smoke_benchmark(
         libero_pro,
     )
 
-    logger.info("selecting %s spec", benchmark_name)
+    logger.info("selecting %s rollouts", benchmark_name)
     if benchmark_name == "libero":
         task_ids = [int(task) for task in tasks] if tasks else [0]
         benchmark = libero(suite, task_ids=task_ids, episodes=env_batch_size)
@@ -269,7 +269,9 @@ def _smoke_benchmark(
         )
         benchmark = replace(
             benchmark,
-            specs=benchmark.specs.sort(["task_key", "init_state_id"]).limit(env_batch_size),
+            rollouts=benchmark.rollouts.sort(["task_key", "init_state_id"]).limit(
+                env_batch_size
+            ),
         )
     elif benchmark_name == "libero_pro":
         benchmark = libero_pro(
@@ -280,26 +282,28 @@ def _smoke_benchmark(
         )
         benchmark = replace(
             benchmark,
-            specs=benchmark.specs.sort(["task_key", "init_state_id"]).limit(env_batch_size),
+            rollouts=benchmark.rollouts.sort(["task_key", "init_state_id"]).limit(
+                env_batch_size
+            ),
         )
     else:
         raise ValueError("unknown benchmark")
 
-    specs = list(benchmark.specs.sort("init_state_id").iter_rows())
-    logger.info("%d specs materialized; constructing runtime", len(specs))
+    rollouts = list(benchmark.rollouts.sort("init_state_id").iter_rows())
+    logger.info("%d rollouts materialized; constructing runtime", len(rollouts))
     runtime = benchmark.runtime_factory(camera_height=64, camera_width=64)
     try:
         prepare_runtime = getattr(runtime, "prepare", None)
         if callable(prepare_runtime):
             prepare_runtime()
         logger.info("opening vector environment")
-        environment, instructions, init_states, task_names = runtime.open_batch(specs)
+        environment, instructions, init_states, task_names = runtime.open_batch(rollouts)
         logger.info("resetting vector environment")
         environment.reset()
         observations = environment.set_init_state(init_states)
         logger.info("stepping vector environment")
         next_observations, rewards, dones, _ = environment.step(
-            np.zeros((len(specs), 7), dtype=np.float32)
+            np.zeros((len(rollouts), 7), dtype=np.float32)
         )
         logger.info("vector environment step complete")
         observation = observations[0]
@@ -307,7 +311,7 @@ def _smoke_benchmark(
         return {
             "benchmark": benchmark_name,
             "suite": suite,
-            "env_batch_size": len(specs),
+            "env_batch_size": len(rollouts),
             "task_name": task_names[0],
             "instruction": instructions[0],
             "primary_shape": list(observation["agentview_image"].shape),
@@ -430,7 +434,6 @@ def _run(
     revision: str,
     write_video: bool,
     env_batch_size: int,
-    profile: bool,
 ) -> dict[str, Any]:
     from physical_ai_evals import evaluate, openvla, vla_jepa
 
@@ -473,7 +476,6 @@ def _run(
         write_video=write_video,
         checkpoint=checkpoint,
         env_batch_size=env_batch_size,
-        profile=profile,
     )
     checkpoint()
     summary = evaluation.metrics().to_pydict()
@@ -485,7 +487,7 @@ def _run(
         "successes": int(summary["successes"][0] or 0),
         "success_rate": evaluation.success_rate(),
         "out_dir": str(evaluation.path),
-        "profile_path": str(evaluation.path / "profiles.jsonl") if profile else None,
+        "timing_path": str(evaluation.path / "timings.jsonl"),
     }
 
 
@@ -508,7 +510,6 @@ def run_openvla(
     revision: str = "",
     write_video: bool = True,
     env_batch_size: int = 8,
-    profile: bool = True,
 ) -> dict[str, Any]:
     return _run(
         "openvla",
@@ -522,7 +523,6 @@ def run_openvla(
         revision,
         write_video,
         env_batch_size,
-        profile,
     )
 
 
@@ -545,7 +545,6 @@ def run_vla_jepa(
     revision: str = "",
     write_video: bool = True,
     env_batch_size: int = 8,
-    profile: bool = True,
 ) -> dict[str, Any]:
     return _run(
         "vla_jepa",
@@ -559,7 +558,6 @@ def run_vla_jepa(
         revision,
         write_video,
         env_batch_size,
-        profile,
     )
 
 
@@ -576,7 +574,6 @@ def modal_main(
     revision: str = "",
     write_video: bool = True,
     env_batch_size: int = 8,
-    profile: bool = True,
     download_only: bool = False,
     smoke_test: bool = False,
 ) -> None:
@@ -617,7 +614,6 @@ def modal_main(
         revision=revision,
         write_video=write_video,
         env_batch_size=env_batch_size,
-        profile=profile,
     )
     print(
         f"{result['successes']}/{result['episodes']} succeeded "

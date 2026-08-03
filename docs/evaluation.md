@@ -1,5 +1,12 @@
 # Evaluation protocol
 
+## Canonical protocol
+
+Reported suite numbers target the field's canonical LIBERO setup: 50 episodes
+per task from the published fixed initial states, seed 7, success rate
+aggregated per suite. Smaller runs (fewer tasks, fewer episodes) are valid for
+iteration but are not reported as reproductions.
+
 ## Execution boundary
 
 One `evaluate()` call constructs one policy and one benchmark runtime. The
@@ -66,11 +73,11 @@ ordering and resume boundaries.
 ## Output schema
 
 `manifest.json` contains the schema version, immutable policy identity,
-benchmark revision and metadata, canonical episode-spec hash, implementation
+benchmark revision and metadata, canonical rollout hash, implementation
 source hash, interpreter/platform versions, package versions, and GPU details.
 These values are not repeated per step.
 
-`episodes` contains one row per episode specification, including task identity,
+`episodes` contains one row per completed rollout, including task identity,
 instruction, initial-state identity, outcome, length, and relative video paths.
 `steps` contains the LeRobot-aligned transition fields:
 
@@ -88,6 +95,11 @@ instruction, initial-state identity, outcome, length, and relative video paths.
 The trace mirrors LeRobot's episode/step/video concepts, but is not a complete
 LeRobot training repository: it does not synthesize `meta/info.json`, task
 indices, aggregate statistics, or multi-episode video shards.
+
+`timings.jsonl` records wall, reset, settling, policy, and simulator time plus
+transition throughput for each completed rollout cohort. These are direct
+phase timings, not CPU or GPU utilization samples. Use the execution platform
+or a native framework profiler for hardware utilization.
 
 ## Reproduction gates
 

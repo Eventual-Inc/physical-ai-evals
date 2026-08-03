@@ -143,7 +143,6 @@ def _run_cutile(
     seed: int,
     write_video: bool,
     env_batch_size: int,
-    profile: bool,
 ) -> dict[str, Any]:
     from physical_ai_evals import evaluate, vla_jepa_cutile
 
@@ -170,7 +169,6 @@ def _run_cutile(
         write_video=write_video,
         checkpoint=checkpoint,
         env_batch_size=env_batch_size,
-        profile=profile,
     )
     checkpoint()
     summary = evaluation.metrics().to_pydict()
@@ -183,7 +181,7 @@ def _run_cutile(
         "successes": int(summary["successes"][0] or 0),
         "success_rate": evaluation.success_rate(),
         "out_dir": str(evaluation.path),
-        "profile_path": str(evaluation.path / "profiles.jsonl") if profile else None,
+        "timing_path": str(evaluation.path / "timings.jsonl"),
     }
 
 
@@ -197,7 +195,6 @@ def run_vla_jepa_cutile(
     seed: int = 7,
     write_video: bool = True,
     env_batch_size: int = 4,
-    profile: bool = True,
 ) -> dict[str, Any]:
     return _run_cutile(
         benchmark_name,
@@ -208,7 +205,6 @@ def run_vla_jepa_cutile(
         seed,
         write_video,
         env_batch_size,
-        profile,
     )
 
 
@@ -222,7 +218,6 @@ def modal_main(
     seed: int = 7,
     write_video: bool = True,
     env_batch_size: int = 4,
-    profile: bool = True,
 ) -> None:
     task_list = [item.strip() for item in tasks.split(",") if item.strip()] or None
     perturbation_list = [item.strip() for item in perturbations.split(",") if item.strip()] or None
@@ -235,7 +230,6 @@ def modal_main(
         seed=seed,
         write_video=write_video,
         env_batch_size=env_batch_size,
-        profile=profile,
     )
     print(
         f"{result['successes']}/{result['episodes']} succeeded "

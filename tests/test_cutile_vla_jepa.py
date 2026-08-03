@@ -210,11 +210,11 @@ def test_cutile_policy_fails_closed_on_transfer_counter_regression() -> None:
 
 def test_rollout_observation_carries_stable_noise_identity() -> None:
     source = {
-        "agentview_image": np.zeros((8, 8, 3), dtype=np.uint8),
-        "robot0_eye_in_hand_image": np.zeros((8, 8, 3), dtype=np.uint8),
-        "robot0_eef_pos": np.zeros(3, dtype=np.float32),
-        "robot0_eef_quat": np.array([0, 0, 0, 1], dtype=np.float32),
-        "robot0_gripper_qpos": np.zeros(2, dtype=np.float32),
+        "image": np.zeros((8, 8, 3), dtype=np.uint8),
+        "wrist_image": np.zeros((8, 8, 3), dtype=np.uint8),
+        "state": np.zeros(8, dtype=np.float32),
+        "eef_position": np.zeros(3, dtype=np.float32),
+        "gripper": 0.0,
     }
     normalized = _policy_observation(
         source,

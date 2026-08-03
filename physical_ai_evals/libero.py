@@ -9,13 +9,16 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import daft
+import numpy as np
 from daft import DataFrame, DataType, Expression, col, lit
 from daft.functions import coalesce, format, hash, regexp, regexp_extract, when
 
-from physical_ai_evals.rollout import Benchmark
+from physical_ai_evals.geometry import quat_xyzw_to_axis_angle
+from physical_ai_evals.rollout import Benchmark, RuntimeObservation
+from physical_ai_evals.schema import EEF_POS_DIM, STATE_DIM
 
 LIBERO_PRO_CODE_REPOSITORY = "https://github.com/Zxy-MLlab/LIBERO-PRO.git"
 LIBERO_PRO_CODE_REVISION = "eafdb809426b13153aa1e4c42d6601844217dfec"
@@ -145,7 +148,7 @@ def _hf_uri(repo_id: str, revision: str, repo_path: Expression | str) -> Express
 # Executable episode rows ---------------------------------------------------
 
 
-def _episode_specs(
+def _rollouts(
     tasks: DataFrame,
     *,
     benchmark: str,
@@ -255,7 +258,7 @@ def libero(
     return Benchmark(
         name="libero",
         revision=LIBERO_PRO_CODE_REVISION,
-        specs=_episode_specs(
+        rollouts=_rollouts(
             tasks,
             benchmark="libero",
             revision=LIBERO_PRO_CODE_REVISION,
@@ -335,7 +338,7 @@ def libero_para(
     return Benchmark(
         name="libero_para",
         revision=LIBERO_PARA_REVISION,
-        specs=_episode_specs(
+        rollouts=_rollouts(
             tasks,
             benchmark="libero_para",
             revision=LIBERO_PARA_REVISION,
@@ -466,7 +469,7 @@ def libero_pro(
     return Benchmark(
         name="libero_pro",
         revision=LIBERO_PRO_REVISION,
-        specs=_episode_specs(
+        rollouts=_rollouts(
             tasks,
             benchmark="libero_pro",
             revision=LIBERO_PRO_REVISION,
@@ -562,11 +565,106 @@ class LiberoRuntime:
                 f"'spawn', but {method!r} is already active"
             )
 
-    def _resolve(self, spec: Mapping[str, Any]) -> dict[str, Any]:
-        bddl_path = _local_path(str(spec["bddl_path"]))
-        init_ref = spec.get("init_path")
+    def _derotate(self, image: Any) -> np.ndarray:
+        return np.asarray(image)[::-1, ::-1]
+
+    def _eef_position(self, observation: Mapping[str, Any]) -> np.ndarray | None:
+        value = observation.get("robot0_eef_pos")
+        if value is None:
+            return None
+        return np.asarray(value, np.float32).ravel()[:EEF_POS_DIM]
+
+    def _gripper(self, observation: Mapping[str, Any]) -> float | None:
+        value = observation.get("robot0_gripper_qpos")
+        if value is None:
+            return None
+        qpos = np.asarray(value, np.float32).ravel()
+        return float(qpos[0] - qpos[1]) if qpos.size >= 2 else float(qpos[0])
+
+    def _proprio(self, observation: Mapping[str, Any]) -> np.ndarray | None:
+        eef = observation.get("robot0_eef_pos")
+        gripper = observation.get("robot0_gripper_qpos")
+        if eef is None or gripper is None:
+            return None
+
+        parts = [np.asarray(eef, np.float32).ravel()[:3]]
+        quaternion = observation.get("robot0_eef_quat")
+        if quaternion is not None:
+            parts.append(quat_xyzw_to_axis_angle(np.asarray(quaternion).reshape(1, 4))[0])
+        gripper_array = np.asarray(gripper, np.float32).ravel()
+        parts.append(gripper_array[:2] if gripper_array.size >= 2 else gripper_array)
+        state = np.concatenate(parts).astype(np.float32)
+        if state.shape != (STATE_DIM,):
+            raise ValueError(
+                f"LIBERO proprioception must have shape {(STATE_DIM,)}, got {state.shape}"
+            )
+        return state
+
+    def normalize_observation(self, observation: Mapping[str, Any]) -> RuntimeObservation:
+        """Translate one raw robosuite observation into the evaluation schema."""
+        return {
+            "image": self._derotate(observation["agentview_image"]),
+            "wrist_image": (
+                self._derotate(observation["robot0_eye_in_hand_image"])
+                if "robot0_eye_in_hand_image" in observation
+                else None
+            ),
+            "state": self._proprio(observation),
+            "eef_position": self._eef_position(observation),
+            "gripper": self._gripper(observation),
+        }
+
+    def _observation_rows(
+        self,
+        observations: Any,
+        count: int,
+    ) -> list[Mapping[str, Any]]:
+        if isinstance(observations, np.ndarray) and observations.dtype == object:
+            rows = observations.tolist()
+            if len(rows) == count and all(isinstance(row, Mapping) for row in rows):
+                return rows
+        if isinstance(observations, Sequence) and not isinstance(
+            observations,
+            (str, bytes, Mapping),
+        ):
+            rows = list(observations)
+            if len(rows) == count and all(isinstance(row, Mapping) for row in rows):
+                return cast(list[Mapping[str, Any]], rows)
+        if isinstance(observations, Mapping):
+
+            def take(value: Any, index: int) -> Any:
+                if isinstance(value, Mapping):
+                    return {name: take(child, index) for name, child in value.items()}
+                array = np.asarray(value)
+                if array.ndim > 0 and array.shape[0] == count:
+                    return array[index]
+                return value
+
+            return [
+                {name: take(value, index) for name, value in observations.items()}
+                for index in range(count)
+            ]
+        raise TypeError(
+            "LIBERO vector observations must be an object array, row sequence, "
+            "or dictionary of batched arrays"
+        )
+
+    def normalize_observations(
+        self,
+        observations: Any,
+        count: int,
+    ) -> list[RuntimeObservation]:
+        """Translate a LIBERO vector observation batch into evaluation rows."""
+        return [
+            self.normalize_observation(observation)
+            for observation in self._observation_rows(observations, count)
+        ]
+
+    def _resolve(self, rollout: Mapping[str, Any]) -> dict[str, Any]:
+        bddl_path = _local_path(str(rollout["bddl_path"]))
+        init_ref = rollout.get("init_path")
         if init_ref is None:
-            raise ValueError(f"task {spec['task_key']!r} has no initial-state file")
+            raise ValueError(f"task {rollout['task_key']!r} has no initial-state file")
         init_path = _local_path(str(init_ref))
         cache_key = str(init_path)
         if cache_key not in self._init_cache:
@@ -576,16 +674,18 @@ class LiberoRuntime:
 
             self._init_cache[cache_key] = torch.load(init_path, weights_only=False)
 
-        instruction = spec.get("instruction")
+        instruction = rollout.get("instruction")
         if instruction is None:
-            raise ValueError(f"task {spec['task_key']!r} has no instruction")
-        init_state_id = int(spec["init_state_id"])
+            raise ValueError(f"task {rollout['task_key']!r} has no instruction")
+        init_state_id = int(rollout["init_state_id"])
         return {
             "bddl_path": bddl_path,
             "instruction": str(instruction),
             "init_state": self._init_cache[cache_key][init_state_id],
-            "task_name": (str(spec["task_name"]) if spec.get("task_name") is not None else None),
-            "seed": int(spec["seed"]),
+            "task_name": (
+                str(rollout["task_name"]) if rollout.get("task_name") is not None else None
+            ),
+            "seed": int(rollout["seed"]),
         }
 
     def _replace_environment(self, key: tuple[Any, ...], bddl_path: Path, seed: int) -> None:
@@ -600,8 +700,8 @@ class LiberoRuntime:
         self._environment.seed(seed)
         self._environment_key = key
 
-    def open(self, spec: Mapping[str, Any]) -> tuple[Any, str, Any, str | None]:
-        task = self._resolve(spec)
+    def open(self, rollout: Mapping[str, Any]) -> tuple[Any, str, Any, str | None]:
+        task = self._resolve(rollout)
         key = ("scalar", str(task["bddl_path"]), task["seed"])
         self._replace_environment(key, task["bddl_path"], task["seed"])
         return (
@@ -613,10 +713,10 @@ class LiberoRuntime:
 
     def open_batch(
         self,
-        specs: Sequence[Mapping[str, Any]],
+        rollouts: Sequence[Mapping[str, Any]],
     ) -> tuple[Any, list[str], list[Any], list[str | None]]:
         """Open or reuse LIBERO's native CPU subprocess vector environment."""
-        tasks = [self._resolve(spec) for spec in specs]
+        tasks = [self._resolve(rollout) for rollout in rollouts]
         environment_key = (
             "vector",
             tuple((str(task["bddl_path"]), task["seed"]) for task in tasks),

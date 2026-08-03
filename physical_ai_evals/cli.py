@@ -42,7 +42,6 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--device", choices=("cuda", "cpu", "mps"), default="cuda")
     run.add_argument("--out", type=Path, default=Path("data/evaluations"))
     run.add_argument("--env-batch-size", type=int, default=1)
-    run.add_argument("--profile", action="store_true")
     run.add_argument("--no-video", action="store_true")
     run.add_argument("--dry-run", action="store_true")
     run.set_defaults(function=_evaluate)
@@ -142,7 +141,6 @@ def _evaluate(args: argparse.Namespace) -> int:
         out=args.out,
         write_video=not args.no_video,
         env_batch_size=args.env_batch_size,
-        profile=args.profile,
     )
     metrics = evaluation.metrics().to_pydict()
     print(
