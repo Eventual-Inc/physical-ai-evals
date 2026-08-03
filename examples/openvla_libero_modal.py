@@ -2,7 +2,7 @@
 # requires-python = ">=3.12,<3.13"
 # dependencies = ["modal>=1.5,<2"]
 # ///
-"""Run the standalone OpenVLA LIBERO example on a Modal CUDA GPU.
+"""Run the OpenVLA/LIBERO example on a Modal CUDA GPU.
 
 uv run examples/openvla_libero_modal.py
 """
@@ -15,10 +15,13 @@ import modal
 GPU = "A10G"
 MODEL_CACHE = "/models"
 LIBERO_CACHE = "/root/.cache/libero"
+OUTPUTS = "/outputs"
+VIDEO_PATH = f"{OUTPUTS}/openvla_libero.mp4"
 
 app = modal.App("openvla-libero-one-task")
 models = modal.Volume.from_name("daft-model-cache", create_if_missing=True)
 assets = modal.Volume.from_name("libero-assets", create_if_missing=True)
+outputs = modal.Volume.from_name("daft-model-outputs", create_if_missing=True)
 hf_token = modal.Secret.from_name("HF_TOKEN")
 
 image = (
@@ -72,6 +75,7 @@ image = (
             "TRANSFORMERS_CACHE": f"{MODEL_CACHE}/huggingface/hub",
             "HF_XET_HIGH_PERFORMANCE": "1",
             "MUJOCO_GL": "egl",
+            "OPENVLA_LIBERO_VIDEO": VIDEO_PATH,
             "PYOPENGL_PLATFORM": "egl",
         }
     )
@@ -90,14 +94,19 @@ image = (
     timeout=3600,
     region=["us-west"],
     secrets=[hf_token],
-    volumes={MODEL_CACHE: models, LIBERO_CACHE: assets},
+    volumes={MODEL_CACHE: models, LIBERO_CACHE: assets, OUTPUTS: outputs},
 )
 def run_episode() -> dict[str, str | float]:
     started = time.monotonic()
     subprocess.run(["python", "/opt/openvla_libero.py"], check=True)
     models.commit()
     assets.commit()
-    result = {"gpu": GPU, "wall_seconds": round(time.monotonic() - started, 2)}
+    outputs.commit()
+    result = {
+        "gpu": GPU,
+        "video_path": VIDEO_PATH,
+        "wall_seconds": round(time.monotonic() - started, 2),
+    }
     print(result)
     return result
 
