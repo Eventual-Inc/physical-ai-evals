@@ -7,6 +7,7 @@ TASKS ?=
 PERTURBATIONS ?=
 EPISODES ?= 10
 ENV_BATCH_SIZE ?= 8
+CUTILE_ENV_BATCH_SIZE ?= 4
 RUFF_VERSION ?= 0.15.21
 TY_VERSION ?= 0.0.56
 MKDOCS_VERSION ?= 1.6.1
@@ -16,7 +17,7 @@ CHECK_WHEEL_CONTENTS_VERSION ?= 0.6.3
 
 .DEFAULT_GOAL := help
 .PHONY: help lock lock-check setup lint fmt typecheck test check docs docs-build build clean \
-        smoke-openvla smoke-vla-jepa rollout-openvla rollout-vla-jepa
+        smoke-openvla smoke-vla-jepa rollout-openvla rollout-vla-jepa rollout-vla-jepa-cutile
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -84,3 +85,6 @@ rollout-openvla: ## OpenVLA sweep on Modal (BENCHMARK=..., SUITE=..., EPISODES=.
 
 rollout-vla-jepa: ## VLA-JEPA sweep on Modal (BENCHMARK=..., SUITE=..., EPISODES=...)
 	$(VENV)/bin/modal run -m physical_ai_evals.modal --policy vla_jepa --benchmark $(BENCHMARK) --suite $(SUITE) $(if $(strip $(TASKS)),--tasks "$(TASKS)") $(if $(strip $(PERTURBATIONS)),--perturbations "$(PERTURBATIONS)") --episodes $(EPISODES) --env-batch-size $(ENV_BATCH_SIZE)
+
+rollout-vla-jepa-cutile: ## daft-cuTile VLA-JEPA sweep on Modal H100 (batch size 1-4)
+	$(VENV)/bin/modal run -m physical_ai_evals.modal_cutile --benchmark $(BENCHMARK) --suite $(SUITE) $(if $(strip $(TASKS)),--tasks "$(TASKS)") $(if $(strip $(PERTURBATIONS)),--perturbations "$(PERTURBATIONS)") --episodes $(EPISODES) --env-batch-size $(CUTILE_ENV_BATCH_SIZE)

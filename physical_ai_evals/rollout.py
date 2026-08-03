@@ -217,7 +217,7 @@ def _run_episode(
     final_reward = 0.0
     try:
         for frame_index in range(int(rollout["max_steps"])):
-            policy_observation = _policy_observation(normalized, instruction)
+            policy_observation = _policy_observation(normalized, instruction, rollout)
             action = policy.act(policy_observation)
             action = np.clip(np.asarray(action, np.float32), -1.0, 1.0)
             if action.shape != (ACTION_DIM,):
@@ -268,12 +268,15 @@ def _run_episode(
 def _policy_observation(
     observation: RuntimeObservation,
     instruction: str,
+    rollout: Mapping[str, Any],
 ) -> Observation:
     return {
         "image": observation["image"],
         "wrist_image": observation["wrist_image"],
         "state": observation["state"],
         "instruction": instruction,
+        "episode_key": str(rollout["episode_key"]),
+        "seed": int(rollout["seed"]),
     }
 
 
@@ -327,6 +330,18 @@ def _run_batch(
     settle_seconds += time.perf_counter() - settle_started
 
     reset_batch(instructions)
+    initial_policy_observations = [
+        _policy_observation(observation, instruction, rollout)
+        for observation, instruction, rollout in zip(
+            normalized,
+            instructions,
+            rollouts,
+            strict=True,
+        )
+    ]
+    prepare_batch = getattr(policy, "prepare_batch", None)
+    if callable(prepare_batch):
+        prepare_batch(initial_policy_observations)
     videos = [
         (
             _EpisodeVideos(media_dir, str(rollout["episode_key"]), frames_per_second)
@@ -350,8 +365,13 @@ def _run_batch(
                 break
 
             policy_observations = [
-                _policy_observation(observation, instruction)
-                for observation, instruction in zip(normalized, instructions, strict=True)
+                _policy_observation(observation, instruction, rollout)
+                for observation, instruction, rollout in zip(
+                    normalized,
+                    instructions,
+                    rollouts,
+                    strict=True,
+                )
             ]
             policy_started = time.perf_counter()
             actions = np.asarray(act_batch(policy_observations), dtype=np.float32)
@@ -424,6 +444,8 @@ def _run_batch(
         raise
 
     elapsed = time.perf_counter() - started
+    policy_profile = getattr(policy, "batch_profile", None)
+    policy_metrics = dict(policy_profile()) if callable(policy_profile) else {}
     return results, {
         "batch_size": len(rollouts),
         "episode_keys": [str(rollout["episode_key"]) for rollout in rollouts],
@@ -439,6 +461,7 @@ def _run_batch(
         "policy_calls": policy_calls,
         "transitions": transitions,
         "transitions_per_second": transitions / elapsed if elapsed else None,
+        **policy_metrics,
     }
 
 

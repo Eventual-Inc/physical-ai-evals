@@ -186,7 +186,6 @@ def test_para_plan_maps_eval_ids_to_sorted_goal_environments(tmp_path, monkeypat
         target = tmp_path / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(f"(:language {instruction})\n", encoding="utf-8")
-
     monkeypatch.setattr(benchmarks, "_glob_repo_files", _listing(paths))
     _local_hf_uris(monkeypatch, tmp_path)
 
