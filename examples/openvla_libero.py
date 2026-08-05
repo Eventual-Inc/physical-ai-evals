@@ -315,24 +315,17 @@ def run_openvla_on_libero(
 
 
 if __name__ == "__main__":
-    MODEL_ID = "openvla/openvla-7b-finetuned-libero-spatial"
-    MODEL_REVISION = "962318cec55ac10993ff0f5f43eda9a270b4c873"
-    SUITE = "libero_spatial"
-    TASK_ID = 0
-    INITIAL_STATE_ID = 0
-    VIDEO_PATH = os.environ.get("OPENVLA_LIBERO_VIDEO", "openvla_libero.mp4")
-
     np.random.seed(7)
     torch.manual_seed(7)
 
     try:
         result = run_openvla_on_libero(
-            MODEL_ID,
-            MODEL_REVISION,
-            SUITE,
-            TASK_ID,
-            INITIAL_STATE_ID,
-            video_path=VIDEO_PATH,
+            model_id="openvla/openvla-7b-finetuned-libero-spatial",
+            model_revision="962318cec55ac10993ff0f5f43eda9a270b4c873",
+            suite="libero_spatial",
+            task_id=0,
+            initial_state_id=0,
+            video_path=os.environ.get("OPENVLA_LIBERO_VIDEO", "openvla_libero.mp4"),
         )
         print(asdict(result))
     finally:
