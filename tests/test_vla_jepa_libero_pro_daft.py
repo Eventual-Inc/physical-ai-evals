@@ -84,21 +84,22 @@ def test_variable_length_rollouts_only_infer_for_ready_lanes() -> None:
             return _observation(self.identity), self.steps >= self.length
 
     policy = FakePolicy()
-    environments = [FakeEpisode(1, 2), FakeEpisode(2, 9), FakeEpisode(3, 3)]
+    environments = [FakeEpisode(1, 2), FakeEpisode(2, 9), FakeEpisode(3, 3), FakeEpisode(4, 1)]
+    max_steps = [20, 20, 20, 0]
     specs = [
         {
             "episode_key": f"episode-{environment.identity}",
             "initial_state_id": environment.identity,
-            "max_steps": 20,
+            "max_steps": budget,
             "video_path": None,
         }
-        for environment in environments
+        for environment, budget in zip(environments, max_steps, strict=True)
     ]
 
     results = example._run_rollouts(policy, environments, specs)
 
-    assert [result.control_steps for result in results] == [2, 9, 3]
-    assert all(result.success for result in results)
+    assert [result.control_steps for result in results] == [2, 9, 3, 0]
+    assert [result.success for result in results] == [True, True, True, False]
     assert policy.calls == [[1, 2, 3], [2]]
 
 

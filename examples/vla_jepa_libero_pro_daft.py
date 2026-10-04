@@ -446,6 +446,7 @@ def _run_rollouts(
                 observation=observation,
                 actions=deque(),
                 frames=frames,
+                complete=int(spec["max_steps"]) <= 0,
             )
         )
 
