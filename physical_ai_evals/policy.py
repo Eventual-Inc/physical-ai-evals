@@ -417,49 +417,6 @@ def vla_jepa(
     )
 
 
-def vla_jepa_cutile(
-    *,
-    model_id: str = VLA_JEPA_MODEL_ID,
-    revision: str = VLA_JEPA_REVISION,
-    qwen_model_id: str = QWEN3_VL_MODEL_ID,
-    qwen_revision: str = QWEN3_VL_REVISION,
-    device_id: int = 0,
-) -> PolicySpec:
-    """Pinned action-only VLA-JEPA policy using daft-cuTile on one GPU."""
-
-    if isinstance(device_id, bool) or not isinstance(device_id, int) or device_id < 0:
-        raise ValueError("device_id must be a non-negative integer")
-    from physical_ai_evals.cutile_vla_jepa import (
-        CUTILE_DAFT_REVISION,
-        CUTILE_VLA_STATIC_BATCH_SIZE,
-        CutileVLAJEPAFactory,
-    )
-
-    return PolicySpec(
-        factory=CutileVLAJEPAFactory(
-            model_id,
-            revision,
-            qwen_model_id,
-            qwen_revision,
-            device_id,
-            _snapshot,
-        ),
-        policy_id=model_id,
-        revision=revision,
-        camera_height=224,
-        camera_width=224,
-        metadata={
-            "adapter": "vla_jepa_cutile",
-            "engine": "daft_cutile",
-            "engine_revision": CUTILE_DAFT_REVISION,
-            "qwen3_vl": f"{qwen_model_id}@{qwen_revision}",
-            "static_batch_size": CUTILE_VLA_STATIC_BATCH_SIZE,
-            "action_horizon": 7,
-            "noise_scheme": "episode-keyed-sha256-pcg64-v1",
-        },
-    )
-
-
 __all__ = [
     "BatchPolicy",
     "Observation",
@@ -469,5 +426,4 @@ __all__ = [
     "VLAJEPAPolicy",
     "openvla",
     "vla_jepa",
-    "vla_jepa_cutile",
 ]
