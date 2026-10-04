@@ -236,6 +236,18 @@ class LiberoProEpisode:
         self._environment.close()
 
 
+# LeRobot keys contain dots, so this TypedDict uses the functional syntax.
+VLAJEPABatch = TypedDict(
+    "VLAJEPABatch",
+    {
+        "observation.images.image": torch.Tensor,
+        "observation.images.image2": torch.Tensor,
+        "observation.state": torch.Tensor,
+        "task": list[str],
+    },
+)
+
+
 class VLAJEPAPolicy:
     """Pinned VLA-JEPA inference through its native LeRobot implementation."""
 
@@ -248,12 +260,7 @@ class VLAJEPAPolicy:
         vjepa2_model_id: str,
         vjepa2_revision: str,
     ) -> None:
-        if torch.cuda.is_available():
-            self.device = "cuda"
-        elif torch.backends.mps.is_available():
-            self.device = "mps"
-        else:
-            raise RuntimeError("VLA-JEPA requires a CUDA GPU or Apple Silicon MPS")
+        self.device = self._select_device()
         self._instruction = ""
 
         from lerobot.configs.policies import PreTrainedConfig
@@ -278,6 +285,14 @@ class VLAJEPAPolicy:
         )
 
     @staticmethod
+    def _select_device() -> str:
+        if torch.cuda.is_available():
+            return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+        raise RuntimeError("VLA-JEPA requires a CUDA GPU or Apple Silicon MPS")
+
+    @staticmethod
     def _image(image: np.ndarray) -> torch.Tensor:
         return torch.from_numpy(image).permute(2, 0, 1).contiguous().float().div_(255)
 
@@ -285,23 +300,31 @@ class VLAJEPAPolicy:
         self._instruction = instruction
         self._model.reset()
 
-    def act(self, observation: LiberoObservation) -> np.ndarray:
-        if not self._instruction:
-            raise RuntimeError("policy must be reset with an instruction")
-        batch = {
+    def _batch(self, observation: LiberoObservation) -> VLAJEPABatch:
+        """Convert one LIBERO observation into a batch of one LeRobot frame."""
+        return {
             "observation.images.image": self._image(observation["image"]).unsqueeze(0),
             "observation.images.image2": self._image(observation["wrist_image"]).unsqueeze(0),
             "observation.state": torch.from_numpy(observation["state"][None]),
             "task": [self._instruction],
         }
+
+    @staticmethod
+    def _libero_action(action: torch.Tensor) -> np.ndarray:
+        """Keep the seven LIBERO action dimensions, clipped to the valid range."""
+        action_array = np.asarray(action.detach().cpu(), np.float32).reshape(-1)[:7].copy()
+        return np.clip(action_array, -1, 1)
+
+    def act(self, observation: LiberoObservation) -> np.ndarray:
+        if not self._instruction:
+            raise RuntimeError("policy must be reset with an instruction")
         with torch.inference_mode():
             action = self._postprocessor(      # Postprocess action
                 self._model.select_action(     # Predict action
-                    self._preprocessor(batch)  # Preprocess observations
+                    self._preprocessor(self._batch(observation))  # Preprocess observations
                 )
             )
-        action = np.asarray(action.detach().cpu(), np.float32).reshape(-1)[:7].copy()
-        return np.clip(action, -1, 1)
+        return self._libero_action(action)
 
 
 def run_episode(
