@@ -55,8 +55,6 @@ def implementation_fingerprint() -> str:
         "schema.py",
         "provenance.py",
         "policy.py",
-        "cutile_vla_jepa.py",
-        "modal_cutile.py",
         "rollout.py",
         "libero.py",
         "geometry.py",
@@ -86,7 +84,6 @@ def evaluation_manifest(
         "runtime": runtime_provenance(
             (
                 "daft",
-                "daft-cutile",
                 "numpy",
                 "torch",
                 "libero",

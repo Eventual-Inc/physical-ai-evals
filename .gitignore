@@ -42,6 +42,9 @@ checkpoints/
 tfds/
 ~/.cache/huggingface  # (informational; home dir not tracked)
 
+# --- secrets ---
+.env
+
 # --- OS / editor ---
 .DS_Store
 .idea/

@@ -14,7 +14,6 @@ from physical_ai_evals.policy import (
     PolicySpec,
     openvla,
     vla_jepa,
-    vla_jepa_cutile,
 )
 from physical_ai_evals.rollout import (
     Benchmark,
@@ -44,5 +43,4 @@ __all__ = [
     "openvla",
     "read_evaluation",
     "vla_jepa",
-    "vla_jepa_cutile",
 ]

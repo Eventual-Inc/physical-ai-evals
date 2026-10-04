@@ -16,7 +16,7 @@ def _parser() -> argparse.ArgumentParser:
     run = commands.add_parser("evaluate", help="run or resume an evaluation")
     run.add_argument(
         "--policy",
-        choices=("openvla", "vla_jepa", "vla_jepa_cutile"),
+        choices=("openvla", "vla_jepa"),
         required=True,
     )
     run.add_argument(
@@ -92,7 +92,7 @@ def _benchmark(args: argparse.Namespace):
 
 
 def _policy(args: argparse.Namespace):
-    from physical_ai_evals import openvla, vla_jepa, vla_jepa_cutile
+    from physical_ai_evals import openvla, vla_jepa
 
     if args.policy == "openvla":
         suite = "libero_goal" if args.benchmark == "libero_para" else args.suite
@@ -107,12 +107,7 @@ def _policy(args: argparse.Namespace):
         kwargs["model_id"] = args.model_id
     if args.revision:
         kwargs["revision"] = args.revision
-    if args.policy == "vla_jepa":
-        return vla_jepa(**kwargs)
-    if args.device != "cuda":
-        raise ValueError("vla_jepa_cutile requires --device cuda")
-    kwargs.pop("device")
-    return vla_jepa_cutile(**kwargs)
+    return vla_jepa(**kwargs)
 
 
 def _evaluate(args: argparse.Namespace) -> int:
