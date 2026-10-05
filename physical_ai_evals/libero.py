@@ -16,6 +16,7 @@ import numpy as np
 from daft import DataFrame, DataType, Expression, col, lit
 from daft.functions import coalesce, format, hash, regexp, regexp_extract, when
 
+from physical_ai_evals._hf import hf_io_config
 from physical_ai_evals.geometry import quat_xyzw_to_axis_angle
 from physical_ai_evals.rollout import Benchmark, RuntimeObservation
 from physical_ai_evals.schema import EEF_POS_DIM, STATE_DIM
@@ -139,7 +140,7 @@ def _glob_repo_files(
     root = f"hf://datasets/{repo_id}"
     listing = daft.from_glob_path(
         [f"{root}/{pattern.lstrip('/')}" for pattern in patterns],
-        io_config=io_config,
+        io_config=hf_io_config(io_config),
     )
     _check_repo_revision(repo_id, revision)
     return listing.select(col("path").substr(len(root) + 1).alias("path"))
@@ -286,7 +287,7 @@ def libero_para(
         LIBERO_PARA_REPO_ID,
         LIBERO_PARA_REVISION,
         ("bddl_files/*.bddl",),
-        io_config=io_config,
+        io_config=hf_io_config(io_config),
     )
     path = col("path")
     paraphrases = files.where(regexp(path, _PARA_TASK)).select(
@@ -317,7 +318,7 @@ def libero_para(
     )
     selected = paraphrases.join(environments, on="task_id", how="inner")
     instruction = regexp_extract(
-        col("_instruction_path").download(io_config=io_config).cast(DataType.string()),
+        col("_instruction_path").download(io_config=hf_io_config(io_config)).cast(DataType.string()),
         r"(?s)\(:language\s+(.+?)\s*\)",
         1,
     )
@@ -372,7 +373,7 @@ def libero_pro(
         LIBERO_PRO_REPO_ID,
         LIBERO_PRO_REVISION,
         ("bddl_files/**/*.bddl", "init_files/**/*.pruned_init"),
-        io_config=io_config,
+        io_config=hf_io_config(io_config),
     )
     path = col("path")
     configured = regexp(path, _PRO_CONFIGURED)
@@ -448,7 +449,7 @@ def libero_pro(
         selected = selected.where(col("task_key").is_in(list(task_keys)))
 
     instruction = regexp_extract(
-        col("bddl_path").download(io_config=io_config).cast(DataType.string()),
+        col("bddl_path").download(io_config=hf_io_config(io_config)).cast(DataType.string()),
         r"(?s)\(:language\s+(.+?)\s*\)",
         1,
     )

@@ -15,7 +15,7 @@ episode, the package and the OpenVLA script produce identical actions.
 
 ## What has been run
 
-LIBERO-Spatial task 0, on 2026-10-04.
+LIBERO-Spatial task 0 unless noted, on 2026-10-04 and 2026-10-05.
 
 | What | Hardware | Result |
 |---|---|---|
@@ -25,12 +25,14 @@ LIBERO-Spatial task 0, on 2026-10-04.
 | package, OpenVLA, initial states 0 and 1 | Modal A10G | 1 of 2 succeeded |
 | package, VLA-JEPA, initial states 0 and 1 | Modal A10G | 2 of 2 succeeded |
 | package vs. `openvla_libero.py`, initial state 0 | Modal A10G | identical actions on all 85 steps |
+| package, OpenVLA, LIBERO-Pro `libero_spatial_lan` (same task as the script), initial states 0 and 1 | Modal A10G | 1 of 2 succeeded |
+| package, VLA-JEPA, same LIBERO-Pro task | Modal A10G | 2 of 2 succeeded |
+| package, OpenVLA, LIBERO-Para `act_lexical_addition_deletion_eval0_ver0`, initial states 0 and 1 | Modal A10G | 1 of 2 succeeded |
+| package, VLA-JEPA, same LIBERO-Para task | Modal A10G | 2 of 2 succeeded |
+| [`examples/notebooks/`](examples/notebooks/) (catalog and LeRobot dataset queries) | Apple M4 Max | ran |
 
 These runs show that the code works end to end. They are not benchmark
 results: no full-suite numbers have been produced yet.
-
-Not yet run end to end: the package on LIBERO-Para and LIBERO-Pro, and the
-LeRobot dataset readers.
 
 ## Run a script
 
@@ -74,6 +76,8 @@ evaluation = pae.evaluate(
 )
 evaluation.episodes.select("init_state_id", "success", "length").show()
 ```
+
+Set `HF_TOKEN`; anonymous Hugging Face requests get rate-limited.
 
 Seeds, settle steps, step budgets, and observation handling are listed in
 [Evaluation protocol](docs/evaluation.md).

@@ -56,3 +56,14 @@ def test_readers_are_thin_daft_pipelines(monkeypatch):
     assert lerobot_tasks(ALOHA).column_names == ["task_index"]
     assert [call[0] for call in calls] == ["read", "episodes", "tasks"]
     assert {call[1] for call in calls} == {"hf://datasets/lerobot/aloha_mobile_shrimp"}
+
+
+def test_hf_token_reaches_daft(monkeypatch):
+    from physical_ai_evals._hf import hf_io_config
+
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    assert hf_io_config() is None
+    monkeypatch.setenv("HF_TOKEN", "hf_test")
+    assert hf_io_config().hf.token == "hf_test"
+    explicit = object()
+    assert hf_io_config(explicit) is explicit

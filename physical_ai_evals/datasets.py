@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 from daft import DataFrame
 
+from physical_ai_evals._hf import hf_io_config
+
 
 @dataclass(frozen=True)
 class LeRobotSource:
@@ -81,7 +83,7 @@ def lerobot(
 
     return reader.read(
         _uri(source, revision),
-        io_config=io_config,
+        io_config=hf_io_config(io_config),
         include_stats=include_stats,
         load_video_frames=load_video_frames,
     )
@@ -99,7 +101,7 @@ def lerobot_episodes(
 
     return reader.read_episodes(
         _uri(source, revision),
-        io_config=io_config,
+        io_config=hf_io_config(io_config),
         include_stats=include_stats,
     )
 
@@ -113,7 +115,7 @@ def lerobot_tasks(
     """Return a lazy task table."""
     from daft.datasets import lerobot as reader
 
-    return reader.read_tasks(_uri(source, revision), io_config=io_config)
+    return reader.read_tasks(_uri(source, revision), io_config=hf_io_config(io_config))
 
 
 __all__ = [
