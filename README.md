@@ -68,15 +68,6 @@ covered only by a unit test with fake environments
 ([`tests/test_vla_jepa_libero_pro_daft.py`](tests/test_vla_jepa_libero_pro_daft.py)),
 not by a real multi-episode run.
 
-## The `physical_ai_evals` package
-
-The `physical_ai_evals/` package (`pae.evaluate`, resumable Parquet traces,
-the Modal apps behind `make rollout-*`, and the LeRobot dataset readers)
-predates these scripts and has not been brought in line with them. CI runs its
-unit tests, but it has not produced published benchmark numbers. Its
-documentation is in [`docs/`](docs/index.md), and
-[`examples/notebooks/`](examples/notebooks/README.md) uses it.
-
 ## Citing
 
 Citation metadata lives in [`CITATION.cff`](CITATION.cff). Please also cite

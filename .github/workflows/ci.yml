@@ -3,9 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
@@ -17,51 +15,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
-        with:
-          python-version: "3.12"
-      - name: Frozen lock agrees with project metadata
-        run: make lock-check
-      - name: Ruff
-        run: make lint
+      - run: uvx ruff@0.15.21 check .
 
-  test:
+  daft-example-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
-        with:
-          python-version: "3.12"
-      - name: Install frozen development environment
-        run: make setup
-      - name: Type check
-        run: make typecheck
-      - name: Pytest
-        run: make test
-
-  docs-build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
-      - name: MkDocs strict build
-        run: make docs-build
-
-  package:
-    needs: [lint, test, docs-build]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
-        with:
-          python-version: "3.12"
-      - name: Clean, build, and inspect distributions
-        run: make build
-      - name: Install wheel in a clean environment
+      - name: Install the example's script environment
         run: |
-          uv venv /tmp/package-smoke --python 3.12
-          uv pip install --python /tmp/package-smoke/bin/python dist/*.whl
-          /tmp/package-smoke/bin/python -c "import physical_ai_evals, physical_ai_evals.schema; print(physical_ai_evals.__version__)"
-          /tmp/package-smoke/bin/physical-ai-evals --help > /dev/null
+          uv sync --script examples/vla_jepa_libero_pro_daft.py
+          PY=$(uv python find --script examples/vla_jepa_libero_pro_daft.py)
+          uv pip install --python "$PY" pytest
+          echo "PY=$PY" >> "$GITHUB_ENV"
+      - run: '"$PY" -m pytest -v tests/test_vla_jepa_libero_pro_daft.py'

@@ -15,7 +15,6 @@ dist/
 .venv/
 venv/
 env/
-# `.python-version` is intentionally tracked: Python 3.12 is the tested runtime.
 
 # --- local datasets and evaluation output ---
 data/
@@ -23,8 +22,6 @@ results/
 *.parquet
 *.mp4
 *.hdf5
-# Keep small test fixtures when needed.
-!tests/fixtures/**/*.parquet
 
 # --- sim / training artifacts ---
 mujoco/
@@ -52,6 +49,3 @@ tfds/
 
 # --- conductor (already gitignored by conductor, listed for clarity) ---
 .context/
-
-# mkdocs build output
-site/

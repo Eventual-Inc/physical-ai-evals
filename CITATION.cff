@@ -1,20 +1,18 @@
 cff-version: 1.2.0
 message: >-
   If you use this software, please cite this repository and the upstream benchmark,
-  policy, and checkpoint papers relevant to your evaluation.
+  policy, and checkpoint papers relevant to your use.
 type: software
 title: physical-ai-evals
-version: 0.2.0
 authors:
   - family-names: Kleven
     given-names: Everett
   - name: Eventual
 repository-code: https://github.com/Eventual-Inc/physical-ai-evals
-url: https://eventual-inc.github.io/physical-ai-evals/
 license: Apache-2.0
 abstract: >-
-  Daft-native OpenVLA and VLA-JEPA evaluation on LIBERO, LIBERO-Para, and LIBERO-Pro
-  with normalized episode and transition traces.
+  Single-file scripts that run OpenVLA and VLA-JEPA on LIBERO and LIBERO-Pro
+  tasks with pinned dependencies.
 keywords:
   - robotics
   - vision-language-action models
