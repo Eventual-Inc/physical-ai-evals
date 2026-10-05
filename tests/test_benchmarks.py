@@ -12,8 +12,9 @@ import pytest
 import torch
 from daft.functions import format
 
-from physical_ai_evals import libero, libero_para, libero_pro
+from physical_ai_evals import libero, libero_para, libero_pro, rollout
 from physical_ai_evals.libero import LiberoRuntime
+from physical_ai_evals.policy import LIBERO_MAX_STEPS, OPENVLA_MAX_STEPS
 
 benchmarks = importlib.import_module("physical_ai_evals.libero")
 
@@ -75,7 +76,10 @@ def test_standard_libero_builds_lazy_executable_episode_grid(tmp_path, monkeypat
     assert data["task_id"] == [1, 1, 3, 3]
     assert data["init_state_id"] == [0, 1, 0, 1]
     assert data["seed"] == [11] * 4
-    assert data["max_steps"] == [250] * 4
+    assert data["max_steps"] == [None] * 4
+    for budgets, expected in ((LIBERO_MAX_STEPS, 280), (OPENVLA_MAX_STEPS, 220)):
+        planned, _ = rollout._canonical_rollouts(benchmark, budgets)
+        assert planned.to_pydict()["max_steps"] == [expected] * 4
     assert data["instruction"] == [
         "perform libero_spatial task 1",
         "perform libero_spatial task 1",

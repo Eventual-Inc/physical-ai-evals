@@ -20,6 +20,10 @@ from physical_ai_evals.geometry import quat_xyzw_to_axis_angle
 from physical_ai_evals.rollout import Benchmark, RuntimeObservation
 from physical_ai_evals.schema import EEF_POS_DIM, STATE_DIM
 
+# OpenVLA's run_libero_eval.py seeds every LIBERO environment with 0; the seed
+# changes object placement even with a fixed initial state. The rollout "seed"
+# column is the process RNG seed, as in that script.
+ENVIRONMENT_SEED = 0
 LIBERO_PRO_CODE_REPOSITORY = "https://github.com/Zxy-MLlab/LIBERO-PRO.git"
 LIBERO_PRO_CODE_REVISION = "eafdb809426b13153aa1e4c42d6601844217dfec"
 LIBERO_PARA_REPO_ID = "HAI-Lab/LIBERO-Para"
@@ -173,15 +177,8 @@ def _rollouts(
             "benchmark": lit(benchmark),
             "benchmark_revision": lit(revision),
             "seed": lit(seed),
-            "max_steps": (
-                lit(max_steps)
-                if max_steps is not None
-                else when(col("suite") == lit("libero_spatial"), lit(250))
-                .when(col("suite") == lit("libero_object"), lit(280))
-                .when(col("suite") == lit("libero_10"), lit(520))
-                .when(col("suite") == lit("libero_90"), lit(400))
-                .otherwise(lit(300))
-            ),
+            # Null means "use the policy's reference budget"; evaluate() fills it.
+            "max_steps": lit(max_steps).cast(daft.DataType.int64()),
         }
     )
     episode_id = format(
@@ -688,7 +685,7 @@ class LiberoRuntime:
             "seed": int(rollout["seed"]),
         }
 
-    def _replace_environment(self, key: tuple[Any, ...], bddl_path: Path, seed: int) -> None:
+    def _replace_environment(self, key: tuple[Any, ...], bddl_path: Path) -> None:
         if self._environment_key == key:
             return
         self.close()
@@ -697,13 +694,13 @@ class LiberoRuntime:
             self.camera_height,
             self.camera_width,
         )
-        self._environment.seed(seed)
+        self._environment.seed(ENVIRONMENT_SEED)
         self._environment_key = key
 
     def open(self, rollout: Mapping[str, Any]) -> tuple[Any, str, Any, str | None]:
         task = self._resolve(rollout)
-        key = ("scalar", str(task["bddl_path"]), task["seed"])
-        self._replace_environment(key, task["bddl_path"], task["seed"])
+        key = ("scalar", str(task["bddl_path"]))
+        self._replace_environment(key, task["bddl_path"])
         return (
             self._environment,
             task["instruction"],
@@ -719,7 +716,7 @@ class LiberoRuntime:
         tasks = [self._resolve(rollout) for rollout in rollouts]
         environment_key = (
             "vector",
-            tuple((str(task["bddl_path"]), task["seed"]) for task in tasks),
+            tuple(str(task["bddl_path"]) for task in tasks),
         )
         if self._environment_key != environment_key:
             self.close()
@@ -737,9 +734,9 @@ class LiberoRuntime:
                     for task in tasks
                 ]
             )
+            self._environment.seed([ENVIRONMENT_SEED] * len(tasks))
             self._environment_key = environment_key
 
-        self._environment.seed([task["seed"] for task in tasks])
         return (
             self._environment,
             [task["instruction"] for task in tasks],

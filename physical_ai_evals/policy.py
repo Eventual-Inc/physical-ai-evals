@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Protocol, TypedDict
 
 import numpy as np
@@ -44,6 +45,23 @@ class BatchPolicy(Policy, Protocol):
     def act_batch(self, observations: Sequence[Observation]) -> np.ndarray: ...
 
 
+# LeRobot's LIBERO budgets (lerobot/envs/libero.py), used unless a policy's
+# reference evaluation differs.
+LIBERO_MAX_STEPS: Mapping[str, int] = MappingProxyType(
+    {
+        "libero_spatial": 280,
+        "libero_object": 280,
+        "libero_goal": 300,
+        "libero_10": 520,
+        "libero_90": 400,
+    }
+)
+# OpenVLA's run_libero_eval.py budgets; only libero_spatial differs.
+OPENVLA_MAX_STEPS: Mapping[str, int] = MappingProxyType(
+    {**LIBERO_MAX_STEPS, "libero_spatial": 220}
+)
+
+
 @dataclass(frozen=True)
 class PolicySpec:
     """Reproducible policy factory loaded once by the rollout process."""
@@ -57,6 +75,7 @@ class PolicySpec:
     num_steps_wait: int = 10
     frames_per_second: int = 20
     metadata: Mapping[str, Any] | None = None
+    max_steps: Mapping[str, int] = LIBERO_MAX_STEPS
 
     def __post_init__(self) -> None:
         if not self.policy_id.strip():
@@ -110,24 +129,16 @@ def _snapshot(model_id: str, revision: str) -> str:
     return snapshot_download(repo_id=model_id, revision=revision)
 
 
-def _center_crop(image: Any, scale: float = 0.9) -> np.ndarray:
-    array = np.asarray(image)
-    height, width = array.shape[:2]
-    side = float(np.sqrt(scale))
-    crop_height = max(1, round(height * side))
-    crop_width = max(1, round(width * side))
-    top = (height - crop_height) // 2
-    left = (width - crop_width) // 2
-    cropped = array[top : top + crop_height, left : left + crop_width]
-    try:
-        from PIL import Image
-    except ImportError:
-        return cropped
-    return np.asarray(
-        Image.fromarray(cropped.astype(np.uint8, copy=False)).resize(
-            (width, height), Image.Resampling.BILINEAR
-        )
-    )
+def _center_crop(image: Any, scale: float = 0.9) -> Any:
+    """Match OpenVLA's LIBERO evaluation: resize to 224, center-crop 90% of the
+    area, and resize the crop back to 224."""
+    from PIL import Image
+
+    image = _as_pil(image).convert("RGB").resize((224, 224), Image.Resampling.LANCZOS)
+    side = round(224 * float(np.sqrt(scale)))
+    offset = (224 - side) // 2
+    image = image.crop((offset, offset, offset + side, offset + side))
+    return image.resize((224, 224), Image.Resampling.BILINEAR)
 
 
 def _as_pil(image: Any) -> Any:
@@ -291,6 +302,7 @@ def openvla(
         revision=resolved_revision,
         camera_height=256,
         camera_width=256,
+        max_steps=OPENVLA_MAX_STEPS,
         metadata={
             "adapter": "openvla",
             "unnorm_key": resolved_key,

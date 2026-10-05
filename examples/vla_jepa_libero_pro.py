@@ -108,7 +108,6 @@ import numpy as np
 import torch
 from huggingface_hub import hf_hub_download, snapshot_download
 from libero.libero.envs import OffScreenRenderEnv
-from scipy.spatial.transform import Rotation
 
 
 class LiberoObservation(TypedDict):
@@ -148,11 +147,19 @@ def read_instruction(bddl_path: Path) -> str:
 
 
 def quaternion_to_axis_angle(quaternion: Any) -> np.ndarray:
-    return (
-        Rotation.from_quat(np.asarray(quaternion, dtype=np.float32).reshape(4))
-        .as_rotvec()
-        .astype(np.float32)
-    )
+    """Convert an xyzw quaternion the way LeRobot's LIBERO processor does.
+
+    The angle is 2 * acos(w) with no sign canonicalization, so it stays
+    continuous near pi. SciPy's as_rotvec() flips to w >= 0 and jumps by
+    about 2 * pi when w changes sign, which LIBERO's downward-facing
+    gripper does constantly.
+    """
+    x, y, z, w = np.asarray(quaternion, dtype=np.float32).reshape(4)
+    w = np.clip(w, -1.0, 1.0)
+    scale = np.sqrt(1.0 - w * w)
+    if scale <= 1e-10:
+        return np.zeros(3, dtype=np.float32)
+    return (np.array([x, y, z]) * (2.0 * np.arccos(w)) / scale).astype(np.float32)
 
 
 class LiberoProEpisode:
@@ -236,6 +243,18 @@ class LiberoProEpisode:
         self._environment.close()
 
 
+# LeRobot keys contain dots, so this TypedDict uses the functional syntax.
+VLAJEPABatch = TypedDict(
+    "VLAJEPABatch",
+    {
+        "observation.images.image": torch.Tensor,
+        "observation.images.image2": torch.Tensor,
+        "observation.state": torch.Tensor,
+        "task": list[str],
+    },
+)
+
+
 class VLAJEPAPolicy:
     """Pinned VLA-JEPA inference through its native LeRobot implementation."""
 
@@ -248,12 +267,7 @@ class VLAJEPAPolicy:
         vjepa2_model_id: str,
         vjepa2_revision: str,
     ) -> None:
-        if torch.cuda.is_available():
-            self.device = "cuda"
-        elif torch.backends.mps.is_available():
-            self.device = "mps"
-        else:
-            raise RuntimeError("VLA-JEPA requires a CUDA GPU or Apple Silicon MPS")
+        self.device = self._select_device()
         self._instruction = ""
 
         from lerobot.configs.policies import PreTrainedConfig
@@ -278,6 +292,14 @@ class VLAJEPAPolicy:
         )
 
     @staticmethod
+    def _select_device() -> str:
+        if torch.cuda.is_available():
+            return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+        raise RuntimeError("VLA-JEPA requires a CUDA GPU or Apple Silicon MPS")
+
+    @staticmethod
     def _image(image: np.ndarray) -> torch.Tensor:
         return torch.from_numpy(image).permute(2, 0, 1).contiguous().float().div_(255)
 
@@ -285,23 +307,31 @@ class VLAJEPAPolicy:
         self._instruction = instruction
         self._model.reset()
 
-    def act(self, observation: LiberoObservation) -> np.ndarray:
-        if not self._instruction:
-            raise RuntimeError("policy must be reset with an instruction")
-        batch = {
+    def _batch(self, observation: LiberoObservation) -> VLAJEPABatch:
+        """Convert one LIBERO observation into a batch of one LeRobot frame."""
+        return {
             "observation.images.image": self._image(observation["image"]).unsqueeze(0),
             "observation.images.image2": self._image(observation["wrist_image"]).unsqueeze(0),
             "observation.state": torch.from_numpy(observation["state"][None]),
             "task": [self._instruction],
         }
+
+    @staticmethod
+    def _libero_action(action: torch.Tensor) -> np.ndarray:
+        """Keep the seven LIBERO action dimensions, clipped to the valid range."""
+        action_array = np.asarray(action.detach().cpu(), np.float32).reshape(-1)[:7].copy()
+        return np.clip(action_array, -1, 1)
+
+    def act(self, observation: LiberoObservation) -> np.ndarray:
+        if not self._instruction:
+            raise RuntimeError("policy must be reset with an instruction")
         with torch.inference_mode():
             action = self._postprocessor(      # Postprocess action
                 self._model.select_action(     # Predict action
-                    self._preprocessor(batch)  # Preprocess observations
+                    self._preprocessor(self._batch(observation))  # Preprocess observations
                 )
             )
-        action = np.asarray(action.detach().cpu(), np.float32).reshape(-1)[:7].copy()
-        return np.clip(action, -1, 1)
+        return self._libero_action(action)
 
 
 def run_episode(
@@ -404,8 +434,8 @@ if __name__ == "__main__":
             perturbation="lan",
             task="pick_up_the_black_bowl_from_table_center_and_place_it_on_the_plate",
             initial_state_id=0,
-            max_steps=250,
-            environment_seed=7,
+            max_steps=280,  # LeRobot's libero_spatial budget
+            environment_seed=0,  # OpenVLA's LIBERO evaluation seeds every env with 0
             video_path=os.environ.get(
                 "VLA_JEPA_LIBERO_PRO_VIDEO",
                 "vla_jepa_libero_pro.mp4",
