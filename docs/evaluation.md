@@ -3,9 +3,24 @@
 ## Canonical protocol
 
 Reported suite numbers target the field's canonical LIBERO setup: 50 episodes
-per task from the published fixed initial states, seed 7, success rate
-aggregated per suite. Smaller runs (fewer tasks, fewer episodes) are valid for
-iteration but are not reported as reproductions.
+per task from the published fixed initial states, success rate aggregated per
+suite. Smaller runs (fewer tasks, fewer episodes) are valid for iteration but
+are not reported as reproductions.
+
+Choices that follow the upstream evaluations (OpenVLA's `run_libero_eval.py`
+and LeRobot's LIBERO environment):
+
+- The process RNG seed is 7. Every LIBERO environment is seeded with 0 once,
+  when it is created, because the environment seed moves objects even with a
+  fixed initial state.
+- After `set_init_state()`, 10 settle steps send `[0, 0, 0, 0, 0, 0, -1]`
+  (no motion, gripper open).
+- Step budgets come from the policy's reference. OpenVLA uses 220 steps on
+  `libero_spatial`; other policies use LeRobot's 280. Both use 280 on
+  `libero_object`, 300 on `libero_goal`, 520 on `libero_10`, and 400 on
+  `libero_90`.
+- The proprioceptive state converts the end-effector quaternion as LeRobot
+  does: `2 * acos(w)` with no sign flip.
 
 ## Execution boundary
 
@@ -15,10 +30,10 @@ caches the active environment and initial-state set.
 
 For each episode:
 
-1. seed Python, NumPy, Torch, CUDA, and the environment;
+1. seed Python, NumPy, Torch, and CUDA (environments are seeded when created);
 2. call `env.reset()` before `set_init_state()` so robosuite's horizon state
    cannot leak across episodes;
-3. execute stabilization actions;
+3. execute 10 settle steps with the gripper open;
 4. rotate both LIBERO camera views by 180 degrees;
 5. reset the policy with the selected instruction;
 6. run actions until `done` or the suite step cap;
@@ -113,12 +128,3 @@ environment in each policy image. They accept all three benchmark families.
 GPU acceptance compares per-episode `success` and `length`, not bitwise action
 tensors. CUDA kernels are not forced into deterministic algorithms because that
 would make the validation path slower and less representative of production.
-
-## Historical trace
-
-The published
-[`physical-ai-evals-libero-spatial-pilot`](https://huggingface.co/datasets/Eventual-Inc/physical-ai-evals-libero-spatial-pilot)
-at revision `ddb8a88fcc579ebf077a9ca2d1e026a7e1cf4429` remains a
-`rollout-v1` read fixture. It is not regenerated as `eval-v1` and is not a
-benchmark reproduction reference: its simulator seed was unverified, it used
-10 rather than 50 initial states, and it lacks current model/runtime provenance.
