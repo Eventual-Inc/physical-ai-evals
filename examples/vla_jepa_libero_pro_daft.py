@@ -673,7 +673,7 @@ if __name__ == "__main__":
             task="pick_up_the_black_bowl_from_table_center_and_place_it_on_the_plate",
             initial_state_id=0,
             max_steps=280,  # LeRobot's libero_spatial budget
-            environment_seed=7,
+            environment_seed=0,  # OpenVLA's LIBERO evaluation seeds every env with 0
             video_path=os.environ.get(
                 "VLA_JEPA_LIBERO_PRO_VIDEO",
                 "vla_jepa_libero_pro.mp4",

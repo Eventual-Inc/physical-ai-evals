@@ -204,9 +204,6 @@ def _run_episode(
     seed = int(rollout["seed"])
     _seed_process(seed)
     environment, instruction, init_state, task_name = runtime.open(rollout)
-    seed_environment = getattr(environment, "seed", None)
-    if callable(seed_environment):
-        seed_environment(seed)
 
     environment.reset()
     observation = environment.set_init_state(init_state)
