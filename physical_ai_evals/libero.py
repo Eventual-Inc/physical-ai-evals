@@ -173,15 +173,8 @@ def _rollouts(
             "benchmark": lit(benchmark),
             "benchmark_revision": lit(revision),
             "seed": lit(seed),
-            "max_steps": (
-                lit(max_steps)
-                if max_steps is not None
-                else when(col("suite") == lit("libero_spatial"), lit(250))
-                .when(col("suite") == lit("libero_object"), lit(280))
-                .when(col("suite") == lit("libero_10"), lit(520))
-                .when(col("suite") == lit("libero_90"), lit(400))
-                .otherwise(lit(300))
-            ),
+            # Null means "use the policy's reference budget"; evaluate() fills it.
+            "max_steps": lit(max_steps).cast(daft.DataType.int64()),
         }
     )
     episode_id = format(

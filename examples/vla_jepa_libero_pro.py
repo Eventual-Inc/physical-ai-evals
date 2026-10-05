@@ -108,7 +108,6 @@ import numpy as np
 import torch
 from huggingface_hub import hf_hub_download, snapshot_download
 from libero.libero.envs import OffScreenRenderEnv
-from scipy.spatial.transform import Rotation
 
 
 class LiberoObservation(TypedDict):
@@ -148,11 +147,19 @@ def read_instruction(bddl_path: Path) -> str:
 
 
 def quaternion_to_axis_angle(quaternion: Any) -> np.ndarray:
-    return (
-        Rotation.from_quat(np.asarray(quaternion, dtype=np.float32).reshape(4))
-        .as_rotvec()
-        .astype(np.float32)
-    )
+    """Convert an xyzw quaternion the way LeRobot's LIBERO processor does.
+
+    The angle is 2 * acos(w) with no sign canonicalization, so it stays
+    continuous near pi. SciPy's as_rotvec() flips to w >= 0 and jumps by
+    about 2 * pi when w changes sign, which LIBERO's downward-facing
+    gripper does constantly.
+    """
+    x, y, z, w = np.asarray(quaternion, dtype=np.float32).reshape(4)
+    w = np.clip(w, -1.0, 1.0)
+    scale = np.sqrt(1.0 - w * w)
+    if scale <= 1e-10:
+        return np.zeros(3, dtype=np.float32)
+    return (np.array([x, y, z]) * (2.0 * np.arccos(w)) / scale).astype(np.float32)
 
 
 class LiberoProEpisode:
@@ -427,7 +434,7 @@ if __name__ == "__main__":
             perturbation="lan",
             task="pick_up_the_black_bowl_from_table_center_and_place_it_on_the_plate",
             initial_state_id=0,
-            max_steps=250,
+            max_steps=280,  # LeRobot's libero_spatial budget
             environment_seed=7,
             video_path=os.environ.get(
                 "VLA_JEPA_LIBERO_PRO_VIDEO",

@@ -74,7 +74,7 @@ def test_openvla_prompt_action_and_gripper_contract():
     assert model.call["do_sample"] is False
 
 
-def test_openvla_center_crop_preserves_shape():
+def test_openvla_center_crop_matches_reference_size():
     pytest.importorskip("PIL")
     processor = _Processor()
     policy = OpenVLAPolicy(
@@ -86,7 +86,7 @@ def test_openvla_center_crop_preserves_shape():
     )
     policy.reset("task")
     policy.act({"image": np.full((20, 24, 3), 127, dtype=np.uint8)})
-    assert np.asarray(processor.image).shape == (20, 24, 3)
+    assert np.asarray(processor.image).shape == (224, 224, 3)
 
 
 def test_openvla_factory_is_suite_specific_and_revision_pinned():

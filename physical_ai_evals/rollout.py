@@ -184,6 +184,14 @@ class _EpisodeVideos:
         self._temporary.clear()
 
 
+def _settle_action(policy: Policy) -> np.ndarray:
+    """No-op that keeps the gripper open (-1), as OpenVLA's and LeRobot's LIBERO
+    evaluations do while the simulator settles after reset."""
+    action = np.zeros(int(getattr(policy, "action_dim", ACTION_DIM)), np.float32)
+    action[-1] = -1.0
+    return action
+
+
 def _run_episode(
     runtime: Runtime,
     policy: Policy,
@@ -202,7 +210,7 @@ def _run_episode(
 
     environment.reset()
     observation = environment.set_init_state(init_state)
-    dummy_action = [0.0] * int(getattr(policy, "action_dim", ACTION_DIM))
+    dummy_action = _settle_action(policy)
     for _ in range(num_steps_wait):
         observation = environment.step(dummy_action)[0]
 
@@ -319,10 +327,7 @@ def _run_batch(
     )
     reset_seconds += time.perf_counter() - reset_started
 
-    dummy = np.zeros(
-        (len(rollouts), int(getattr(policy, "action_dim", ACTION_DIM))),
-        np.float32,
-    )
+    dummy = np.tile(_settle_action(policy), (len(rollouts), 1))
     settle_started = time.perf_counter()
     for _ in range(num_steps_wait):
         stepped = environment.step(dummy)
@@ -693,7 +698,9 @@ def _completed_episode_keys(root: Path) -> DataFrame:
     )
 
 
-def _canonical_rollouts(benchmark: Benchmark) -> tuple[DataFrame, str]:
+def _canonical_rollouts(
+    benchmark: Benchmark, max_steps: Mapping[str, int]
+) -> tuple[DataFrame, str]:
     missing = sorted(set(_ROLLOUT_COLUMNS) - set(benchmark.rollouts.column_names))
     # episode_index is assigned only after a stable sort/materialization.
     if missing != ["episode_index"]:
@@ -708,6 +715,12 @@ def _canonical_rollouts(benchmark: Benchmark) -> tuple[DataFrame, str]:
     for name in required:
         if any(value is None for value in data[name]):
             raise ValueError(f"benchmark rollouts contain null {name!r} values")
+    for index, value in enumerate(data["max_steps"]):
+        if value is None:
+            suite = data["suite"][index]
+            if suite not in max_steps:
+                raise ValueError(f"policy has no step budget for suite {suite!r}; set max_steps")
+            data["max_steps"][index] = max_steps[suite]
     order = sorted(
         range(count),
         key=lambda index: (
@@ -833,7 +846,7 @@ def evaluate(
     """
     if env_batch_size < 1:
         raise ValueError("env_batch_size must be positive")
-    rollouts, rollouts_hash = _canonical_rollouts(benchmark)
+    rollouts, rollouts_hash = _canonical_rollouts(benchmark, policy.max_steps)
     evaluation_id, config = evaluation_manifest(
         policy={
             "id": policy.policy_id,
@@ -843,6 +856,7 @@ def evaluate(
             "camera_width": policy.camera_width,
             "num_steps_wait": policy.num_steps_wait,
             "frames_per_second": policy.frames_per_second,
+            "max_steps": dict(policy.max_steps),
             "metadata": dict(policy.metadata or {}),
         },
         benchmark={

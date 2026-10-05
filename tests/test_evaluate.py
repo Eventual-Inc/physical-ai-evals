@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import daft
 import pytest
@@ -170,7 +171,7 @@ def test_batched_actor_matches_scalar_signature_and_records_timings(tmp_path):
 
 def test_rollout_actor_is_a_real_daft_batch_expression():
     benchmark = mock_benchmark(task_ids=(0,), episodes=2)
-    rollouts, _ = rollout._canonical_rollouts(benchmark)
+    rollouts, _ = rollout._canonical_rollouts(benchmark, {})
     actor = rollout.RolloutActor(
         mock_policy(batched=True),
         benchmark.runtime_factory,
@@ -317,3 +318,8 @@ def test_video_paths_are_atomic_and_readable(tmp_path):
         assert path.suffix == ".mp4"
         assert path.stat().st_size > 0
     assert list(evaluation.path.rglob(".*.mp4")) == []
+
+
+def test_settle_action_keeps_the_gripper_open():
+    action = rollout._settle_action(SimpleNamespace(action_dim=7))
+    assert action.tolist() == [0, 0, 0, 0, 0, 0, -1]
